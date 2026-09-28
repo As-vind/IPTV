@@ -213,6 +213,7 @@ class _DetailScreenState extends State<DetailScreen> {
           icon: Icon(fav ? Icons.favorite : Icons.favorite_border, color: fav ? kAccent : null),
           label: Text(fav ? 'Dans Ma liste' : 'Ma liste'),
         ),
+        if (s.downloadsEnabled)
         AnimatedBuilder(
           animation: s.downloads,
           builder: (c, _) => OutlinedButton.icon(
@@ -429,6 +430,7 @@ class _DetailScreenState extends State<DetailScreen> {
                               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
                         ),
                         if (frac >= .95) const Text('✓ Vu', style: TextStyle(color: Color(0xFF3ECF8E), fontWeight: FontWeight.w700)),
+                        if (s.downloadsEnabled)
                         AnimatedBuilder(
                           animation: s.downloads,
                           builder: (c, _) => IconButton(

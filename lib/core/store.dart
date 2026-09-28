@@ -138,6 +138,9 @@ class AppState extends ChangeNotifier {
   int get bufferMin => (cfg['buffer_min'] as num?)?.toInt() ?? 0;
   int get liveCacheSecs => (cfg['live_cache'] as num?)?.toInt() ?? 3;
   Directory get dataDir => _dir;
+
+  /// Téléchargements hors ligne (retirés de la version App Store : règle 5.2.3 d'Apple).
+  bool get downloadsEnabled => !(kStoreBuild && Platform.isIOS);
   String get lang => '${cfg['lang'] ?? 'fr-FR'}';
 
   Map<String, dynamic> _pd(String pid) {

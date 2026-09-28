@@ -106,9 +106,127 @@ jobs:
           name: ios-ipa
           path: IPTV-Player-*.ipa
 
+  android-store:
+    name: Google Play (AAB signé)
+    needs: verification
+    runs-on: ubuntu-latest
+    env:
+      KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Secrets présents ?
+        id: chk
+        run: |
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ] && [ -n "$KEY_ALIAS" ]; then echo "ok=true" >> $GITHUB_OUTPUT; else
+            echo "ok=false" >> $GITHUB_OUTPUT; echo "::notice::Clé de signature Google Play absente : étape ignorée (voir store/STORES.md)."; fi
+      - uses: actions/checkout@v4
+        if: steps.chk.outputs.ok == 'true'
+      - uses: actions/setup-java@v4
+        if: steps.chk.outputs.ok == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        if: steps.chk.outputs.ok == 'true'
+        with:
+          channel: stable
+          cache: true
+      - name: Préparer et signer
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          bash tool/setup_platforms.sh
+          echo "$KS_B64" | base64 --decode > android/app/upload.jks
+          printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=upload.jks\n" "$KS_PASS" "${KEY_PASS:-$KS_PASS}" "$KEY_ALIAS" > android/key.properties
+      - name: Compiler l'AAB (version stores)
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          set +e
+          flutter build appbundle --release --dart-define=STORE=true --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          code=$?
+          tail -80 build.txt
+          grep -E "error:|Error:|FAILURE|What went wrong" -A3 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $code
+      - name: Renommer
+        if: steps.chk.outputs.ok == 'true'
+        run: cp build/app/outputs/bundle/release/app-release.aab "IPTV-Player-${APP_VERSION}.${{ github.run_number }}-google-play.aab"
+      - uses: actions/upload-artifact@v4
+        if: steps.chk.outputs.ok == 'true'
+        with:
+          name: google-play-aab
+          path: IPTV-Player-*-google-play.aab
+      - name: Envoi sur Google Play (test interne, brouillon)
+        if: steps.chk.outputs.ok == 'true' && env.PLAY_JSON != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.asvind.iptv_player
+          releaseFiles: IPTV-Player-*-google-play.aab
+          track: internal
+          status: draft
+
+  ios-store:
+    name: App Store (envoi TestFlight)
+    needs: verification
+    runs-on: macos-latest
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8_B64: ${{ secrets.ASC_KEY_P8_B64 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Secrets présents ?
+        id: chk
+        run: |
+          if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_P8_B64" ] && [ -n "$APPLE_TEAM_ID" ]; then echo "ok=true" >> $GITHUB_OUTPUT; else
+            echo "ok=false" >> $GITHUB_OUTPUT; echo "::notice::Clé App Store Connect absente : étape ignorée (voir store/STORES.md)."; fi
+      - uses: actions/checkout@v4
+        if: steps.chk.outputs.ok == 'true'
+      - uses: subosito/flutter-action@v2
+        if: steps.chk.outputs.ok == 'true'
+        with:
+          channel: stable
+          cache: true
+      - name: Préparer
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          bash tool/setup_platforms.sh
+          flutter build ios --config-only --release --no-codesign || true
+          python3 tool/patch_platforms.py
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+      - name: Compiler (version stores)
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          flutter build ios --release --no-codesign --dart-define=STORE=true --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }}
+      - name: Archiver, signer et envoyer sur App Store Connect
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          set -o pipefail
+          KEY=~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          AUTH="-allowProvisioningUpdates -authenticationKeyPath $KEY -authenticationKeyID $ASC_KEY_ID -authenticationKeyIssuerID $ASC_ISSUER_ID"
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Runner.xcarchive" archive \
+            DEVELOPMENT_TEAM=$APPLE_TEAM_ID CODE_SIGN_STYLE=Automatic $AUTH | tail -60
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" $AUTH | tail -60
+
   publication:
     name: Publication
-    needs: [android, ios]
+    needs: [android, ios, android-store, ios-store]
     if: always() && needs.android.result == 'success'
     runs-on: ubuntu-latest
     steps:

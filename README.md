@@ -21,6 +21,9 @@ et publiée dans **Releases** :
 - Lecteur : pistes audio, sous-titres, reprise automatique, épisode suivant
 - Navigation à la télécommande (Android TV)
 
+## Publication sur les stores
+Voir [`store/STORES.md`](store/STORES.md) (comptes, secrets GitHub, fiches, confidentialité).
+
 ## Structure
 - `lib/core` : M3U, Xtream, pays, TMDB, état (profils, favoris, reprise)
 - `lib/ui` : écrans

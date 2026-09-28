@@ -289,6 +289,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Expanded(child: Text('$kAppTitle $kAppVersion — conçu par $kAppAuthor', style: const TextStyle(color: kMuted))),
         ]),
         const SizedBox(height: 10),
+        const Text("Ce produit utilise l'API de TMDB mais n'est ni approuvé ni certifié par TMDB. "
+            "IPTV Player ne fournit aucun contenu : vous ajoutez votre propre abonnement.",
+            style: TextStyle(color: kMuted, fontSize: 12.5)),
+        const SizedBox(height: 10),
         const Align(alignment: Alignment.centerLeft, child: Signature(size: 22)),
       ]),
     );

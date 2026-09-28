@@ -163,7 +163,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
             child: SafeArea(
               child: Row(children: [
                 _roundIcon(Icons.search, () => go('search')),
-                _roundIcon(Icons.download_outlined, () => go('downloads')),
+                if (s.downloadsEnabled) _roundIcon(Icons.download_outlined, () => go('downloads')),
                 _avatarMenu(s, size: 30),
               ]),
             ),
@@ -251,7 +251,8 @@ class _ShellState extends State<Shell> implements RootNavigator {
             const SizedBox(height: 18),
             Expanded(
               child: ListView(padding: EdgeInsets.zero, children: [
-                for (final n in _nav) _navItem(n),
+                for (final n in _nav)
+                  if (n.key != 'downloads' || s.downloadsEnabled) _navItem(n),
                 _profileItem(s),
               ]),
             ),
@@ -402,7 +403,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
           tab('series', text: 'Séries'),
           tab('live', text: 'Chaînes TV'),
           tab('favorites', icon: Icons.favorite_border),
-          tab('downloads', icon: Icons.download_outlined),
+          if (s.downloadsEnabled) tab('downloads', icon: Icons.download_outlined),
           tab('search', icon: Icons.search),
         ]),
       ),
