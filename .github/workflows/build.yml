@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: "2.1"
+  APP_VERSION: "2.6"
 
 jobs:
   verification:
@@ -61,7 +61,7 @@ jobs:
       - name: Compiler l'APK
         run: |
           set +e
-          flutter build apk --release --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          flutter build apk --release --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
           code=$?
           tail -120 build.txt
           grep -E "error:|Error:|FAILURE|What went wrong" -A3 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done
@@ -91,7 +91,7 @@ jobs:
       - name: Compiler
         run: |
           set +e
-          flutter build ios --release --no-codesign --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          flutter build ios --release --no-codesign --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
           code=$?
           tail -120 build.txt
           grep -E "error:|Error:|Failed" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done

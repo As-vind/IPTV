@@ -213,6 +213,14 @@ class _DetailScreenState extends State<DetailScreen> {
           icon: Icon(fav ? Icons.favorite : Icons.favorite_border, color: fav ? kAccent : null),
           label: Text(fav ? 'Dans Ma liste' : 'Ma liste'),
         ),
+        AnimatedBuilder(
+          animation: s.downloads,
+          builder: (c, _) => OutlinedButton.icon(
+            onPressed: (_series && nSeasons == 0) ? null : () => _download(s),
+            icon: Icon(_series ? Icons.download_outlined : _dlIcon(s, widget.item.url)),
+            label: Text(_series ? 'Télécharger la saison' : _dlLabel(s, widget.item.url)),
+          ),
+        ),
       ]),
     ]);
 
@@ -310,6 +318,62 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
+  // -- téléchargements
+  String _dlLabel(AppState s, String url) {
+    final j = s.downloads.jobFor(url);
+    return switch (j?['state']) {
+      'done' => 'Téléchargé',
+      'downloading' => 'Téléchargement ${s.downloads.percent(j!)} %',
+      'queued' => 'En attente',
+      'paused' => 'En pause ${s.downloads.percent(j!)} %',
+      'error' => 'Réessayer',
+      _ => 'Télécharger',
+    };
+  }
+
+  IconData _dlIcon(AppState s, String url) => switch (s.downloads.jobFor(url)?['state']) {
+        'done' => Icons.download_done,
+        'downloading' || 'queued' => Icons.downloading,
+        'paused' => Icons.pause_circle_outline,
+        'error' => Icons.refresh,
+        _ => Icons.download_outlined,
+      };
+
+  Future<void> _download(AppState s) async {
+    final dm = s.downloads;
+    if (_series) {
+      var n = 0;
+      for (final it in _episodeItems(_season)) {
+        if (dm.jobFor(it.url) == null) {
+          await dm.add(it, quiet: true);
+          n++;
+        }
+      }
+      if (mounted) toast(context, n > 0 ? '$n épisode(s) ajouté(s) aux téléchargements.' : 'Saison déjà téléchargée ou en cours.');
+      return;
+    }
+    final j = dm.jobFor(widget.item.url);
+    if (j == null || j['state'] == 'error' || j['state'] == 'paused') {
+      await dm.add(PlayItem.of(widget.item), title: _title);
+      if (mounted) toast(context, 'Ajouté aux téléchargements : $_title');
+    } else if (j['state'] == 'done') {
+      if (mounted) toast(context, 'Déjà téléchargé : il se lit hors ligne.');
+    } else {
+      if (mounted) toast(context, 'Téléchargement en cours (${dm.percent(j)} %).');
+    }
+  }
+
+  Future<void> _downloadEpisode(AppState s, int j) async {
+    final it = _episodeItems(_season)[j];
+    final job = s.downloads.jobFor(it.url);
+    if (job == null || job['state'] == 'error' || job['state'] == 'paused') {
+      await s.downloads.add(it);
+      if (mounted) toast(context, 'Épisode ajouté aux téléchargements.');
+    } else if (job['state'] == 'done') {
+      if (mounted) toast(context, 'Épisode déjà téléchargé : il se lit hors ligne.');
+    }
+  }
+
   List<Widget> _episodeRows(AppState s, double pad) {
     final seasons = _seasons;
     if (_season >= seasons.length) return [];
@@ -365,6 +429,14 @@ class _DetailScreenState extends State<DetailScreen> {
                               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
                         ),
                         if (frac >= .95) const Text('✓ Vu', style: TextStyle(color: Color(0xFF3ECF8E), fontWeight: FontWeight.w700)),
+                        AnimatedBuilder(
+                          animation: s.downloads,
+                          builder: (c, _) => IconButton(
+                            tooltip: 'Télécharger cet épisode',
+                            onPressed: () => _downloadEpisode(s, j),
+                            icon: Icon(_dlIcon(s, '${e['url']}'), size: 22),
+                          ),
+                        ),
                       ]),
                       if (bits.isNotEmpty) Text(bits, style: const TextStyle(color: kMuted, fontSize: 12)),
                       if ('${e['plot'] ?? ''}'.isNotEmpty)

@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'countries.dart';
+import 'downloads.dart';
 import 'm3u.dart';
 import 'meta.dart';
 import 'models.dart';
@@ -17,7 +18,13 @@ import 'text.dart';
 import 'xtream.dart';
 
 const String kAppTitle = 'IPTV Player';
-const String kAppVersion = '2.1';
+const String kAppVersion = '2.6';
+
+/// Clé TMDB fournie à la compilation (secret GitHub TMDB_KEY) : jamais écrite dans le code public.
+const String kTmdbBuiltin = String.fromEnvironment('TMDB_KEY');
+
+/// Version « stores » (App Store / Google Play) : sans logos ni marques de plateformes tierces.
+const bool kStoreBuild = bool.fromEnvironment('STORE');
 const String kAppAuthor = 'Asvind';
 
 const List<int> kAvatarColors = [0xFFE8252C, 0xFF1A5FD8, 0xFFF6A600, 0xFF0E9A48, 0xFF8B3FD9, 0xFFE0457B, 0xFF11A3B5, 0xFF5B6478];
@@ -76,6 +83,9 @@ class AppState extends ChangeNotifier {
   Set<String> favorites = {};
 
   final Map<String, Map<String, dynamic>> _metaMem = {};
+  final Map<String, List<Map<String, dynamic>>> _listMem = {};
+  final Map<String, Future<List<Map<String, dynamic>>>> _listPending = {};
+  late final DownloadManager downloads = DownloadManager(this);
   final Map<String, Future<Map<String, dynamic>?>> _metaPending = {};
   Timer? _saveTimer;
 
@@ -94,6 +104,9 @@ class AppState extends ChangeNotifier {
     cfg.putIfAbsent('tmdb_key', () => '');
     cfg.putIfAbsent('lang', () => 'fr-FR');
     cfg.putIfAbsent('pdata', () => <String, dynamic>{});
+    cfg.putIfAbsent('downloads', () => <dynamic>[]);
+    cfg.putIfAbsent('buffer_min', () => 0);
+    cfg.putIfAbsent('live_cache', () => 3);
     if ((cfg['profiles'] as List?)?.isNotEmpty != true) {
       cfg['profiles'] = [
         {'id': 'p1', 'name': 'Principal', 'color': kAvatarColors[0], 'emoji': '🦤', 'kids': false, 'pin': ''}
@@ -108,6 +121,7 @@ class AppState extends ChangeNotifier {
     } else if (last.isNotEmpty && '${last.first['pin'] ?? ''}'.isEmpty && !askProfileAtStart) {
       selectProfile(last.first['id'] as String, notify: false);
     }
+    downloads.init();
     final srcs = sources;
     if (srcs.isNotEmpty) {
       final sid = srcs.any((s) => s['id'] == cfg['last_source']) ? cfg['last_source'] as String : srcs.first['id'] as String;
@@ -119,7 +133,11 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> get sources => (cfg['sources'] as List).cast<Map<String, dynamic>>();
   List<Map<String, dynamic>> get profiles =>
       (cfg['profiles'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-  String get tmdbKey => '${cfg['tmdb_key'] ?? ''}';
+  String get userTmdbKey => '${cfg['tmdb_key'] ?? ''}';
+  String get tmdbKey => userTmdbKey.trim().isNotEmpty ? userTmdbKey.trim() : kTmdbBuiltin;
+  int get bufferMin => (cfg['buffer_min'] as num?)?.toInt() ?? 0;
+  int get liveCacheSecs => (cfg['live_cache'] as num?)?.toInt() ?? 3;
+  Directory get dataDir => _dir;
   String get lang => '${cfg['lang'] ?? 'fr-FR'}';
 
   Map<String, dynamic> _pd(String pid) {
@@ -474,26 +492,59 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------ fiches
   File _metaFile(String key) => File('${_dir.path}/meta/${fnv(key)}.json');
 
-  Future<Map<String, dynamic>?> meta(Item item) {
-    final key = '${item.kind}|${currentSource?['id']}|${item.url}|$lang|${tmdbKey.isNotEmpty}';
+  String _metaKey(Item item) => 'v3|${item.kind}|${currentSource?['id']}|${item.url}|$lang|${tmdbKey.isNotEmpty}';
+
+  /// Fiche déjà en mémoire (affichage immédiat, sans attendre).
+  Map<String, dynamic>? metaNow(Item item) => _metaMem[_metaKey(item)];
+
+  Future<Map<String, dynamic>> _computeMeta(Item item) => item.kind == 'series'
+      ? seriesMeta(currentSource, item, tmdbKey, lang)
+      : movieMeta(currentSource, item, tmdbKey, lang);
+
+  void _indexCast(Item item, Map<String, dynamic> m) {
+    for (final c in (m['cast'] as List? ?? []).whereType<Map>()) {
+      final n = '${c['name'] ?? ''}';
+      if (n.isNotEmpty) _actorIndex.putIfAbsent(norm(n), () => {}).add(item.url);
+    }
+  }
+
+  /// Fiche d'un film / d'une série. Mise en cache ; actualisée en arrière-plan une fois par jour ;
+  /// redemandée 20 minutes plus tard si TMDB n'avait pas répondu.
+  Future<Map<String, dynamic>?> meta(Item item, {bool force = false}) {
+    final key = _metaKey(item);
     final mem = _metaMem[key];
-    if (mem != null) return Future.value(mem);
+    if (mem != null && !force) return Future.value(mem);
     return _metaPending[key] ??= () async {
       try {
         final f = _metaFile(key);
         Map<String, dynamic>? m;
-        if (await f.exists() && DateTime.now().difference(await f.lastModified()).inDays < 7) {
+        var stale = false;
+        if (!force && await f.exists()) {
+          final age = DateTime.now().difference(await f.lastModified());
           m = Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map);
-        } else {
-          m = item.kind == 'series'
-              ? await seriesMeta(currentSource, item, tmdbKey, lang)
-              : await movieMeta(currentSource, item, tmdbKey, lang);
+          final failed = m['_tmdb'] == 'fail';
+          if (failed && age.inMinutes >= 20) {
+            m = null;
+          } else if (age.inHours >= 24) {
+            stale = true;
+          }
+        }
+        if (m == null) {
+          m = await _computeMeta(item);
           await f.writeAsString(jsonEncode(m));
         }
         _metaMem[key] = m;
-        for (final c in (m['cast'] as List? ?? []).whereType<Map>()) {
-          final n = '${c['name'] ?? ''}';
-          if (n.isNotEmpty) _actorIndex.putIfAbsent(norm(n), () => {}).add(item.url);
+        _indexCast(item, m);
+        if (stale) {
+          unawaited(() async {
+            try {
+              final fresh = await _computeMeta(item);
+              if (fresh['_tmdb'] != 'fail') {
+                await f.writeAsString(jsonEncode(fresh));
+                _metaMem[key] = fresh;
+              }
+            } catch (_) {}
+          }());
         }
         return m;
       } catch (_) {
@@ -504,15 +555,48 @@ class AppState extends ChangeNotifier {
     }();
   }
 
-  Future<Map<String, dynamic>?> person({int? id, required String name}) async {
+  /// Listes TMDB (tendances, succès, plateformes…) mises en cache pour la journée.
+  List<Map<String, dynamic>>? listNow(String name) => _listMem['$name|$lang|${_today()}'];
+
+  Future<List<Map<String, dynamic>>> tmdbList(String name, Future<List<Map<String, dynamic>>> Function(String key, String lang) compute) {
+    final key = '$name|$lang|${_today()}';
+    final mem = _listMem[key];
+    if (mem != null) return Future.value(mem);
+    if (tmdbKey.isEmpty) return Future.value(const []);
+    return _listPending[key] ??= () async {
+      final f = _metaFile('list|$key');
+      try {
+        if (await f.exists()) {
+          final l = (jsonDecode(await f.readAsString()) as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          _listMem[key] = l;
+          return l;
+        }
+        final l = await compute(tmdbKey, lang);
+        if (l.isNotEmpty) await f.writeAsString(jsonEncode(l));
+        _listMem[key] = l;
+        return l;
+      } catch (_) {
+        return const <Map<String, dynamic>>[];
+      } finally {
+        _listPending.remove(key);
+      }
+    }();
+  }
+
+  static String _today() {
+    final n = DateTime.now();
+    return '${n.year}-${n.month}-${n.day}';
+  }
+
+  Future<Map<String, dynamic>?> person({int? id, required String name, bool force = false}) async {
     if (tmdbKey.isEmpty) return null;
     final key = 'person|${id ?? norm(name)}|$lang';
     final mem = _metaMem[key];
-    if (mem != null) return mem;
+    if (mem != null && !force) return mem;
     try {
       final f = _metaFile(key);
       Map<String, dynamic>? m;
-      if (await f.exists() && DateTime.now().difference(await f.lastModified()).inDays < 7) {
+      if (!force && await f.exists() && DateTime.now().difference(await f.lastModified()).inDays < 1) {
         m = Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map);
       } else {
         m = await personMeta(tmdbKey, lang, id: id, name: name);
@@ -555,6 +639,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setBufferMin(int v) {
+    cfg['buffer_min'] = v;
+    save();
+    notifyListeners();
+  }
+
+  void setLiveCache(int v) {
+    cfg['live_cache'] = v;
+    save();
+    notifyListeners();
+  }
+
   void setLang(String l) {
     cfg['lang'] = l;
     _metaMem.clear();
@@ -564,6 +660,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> clearMetaCache() async {
     _metaMem.clear();
+    _listMem.clear();
     try {
       await Directory('${_dir.path}/meta').delete(recursive: true);
       await Directory('${_dir.path}/meta').create(recursive: true);

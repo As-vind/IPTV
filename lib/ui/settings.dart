@@ -121,7 +121,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _key = TextEditingController(text: AppScope.read(context).tmdbKey);
+  late final TextEditingController _key = TextEditingController(text: AppScope.read(context).userTmdbKey);
   bool _testing = false;
   static const _langs = [('fr-FR', 'Français'), ('en-US', 'English'), ('es-ES', 'Español'), ('de-DE', 'Deutsch'),
     ('it-IT', 'Italiano'), ('pt-PT', 'Português'), ('ar-SA', 'العربية')];
@@ -200,11 +200,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: FilledButton.icon(onPressed: () => showSourceDialog(context), icon: const Icon(Icons.add), label: const Text('Ajouter une source')),
         ),
         _h('Fiches films, séries et acteurs (TMDB)'),
-        const Text(
+        Text(
             "Avec une clé TMDB gratuite, l'application affiche les photos et biographies des acteurs, leur filmographie, "
             'les fonds, bandes-annonces, âges requis et vignettes des épisodes. Créez un compte sur themoviedb.org → '
-            'Paramètres → API, puis collez la clé API (v3) ou le jeton de lecture (v4).',
-            style: TextStyle(color: kMuted, height: 1.4)),
+            'Paramètres → API, puis collez la clé API (v3) ou le jeton de lecture (v4).'
+            '${kTmdbBuiltin.length > 0 ? "  Une clé est déjà intégrée à l'application : ce champ ne sert que si vous voulez utiliser la vôtre." : ''}',
+            style: const TextStyle(color: kMuted, height: 1.4)),
         const SizedBox(height: 10),
         TextField(controller: _key, obscureText: true, decoration: const InputDecoration(labelText: 'Clé API TMDB')),
         const SizedBox(height: 10),
@@ -227,6 +228,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onSelected: (_) => s.setLang(code),
             ),
         ]),
+        _h('Lecture, pré-chargement et téléchargements'),
+        const Text(
+            "Pré-chargement : le film ou l'épisode se télécharge en avance pendant que vous regardez. Si la connexion "
+            "ralentit, la lecture continue sur ce qui est déjà chargé ; si elle s'arrête, l'application attend d'avoir "
+            "rempli la réserve puis repart sans à-coups. Avec un très petit débit, utilisez plutôt « Télécharger » sur la fiche.",
+            style: TextStyle(color: kMuted, height: 1.4)),
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          const Text('Films et séries :  ', style: TextStyle(color: kMuted)),
+          for (final (v, t) in const [(0, 'Désactivé'), (1, "1 min d'avance"), (5, "5 min d'avance"), (10, "10 min d'avance")])
+            ChoiceChip(
+              label: Text(t), selected: s.bufferMin == v, showCheckmark: false,
+              labelStyle: TextStyle(color: s.bufferMin == v ? kBg : kText, fontWeight: FontWeight.w700),
+              onSelected: (_) => s.setBufferMin(v),
+            ),
+        ]),
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          const Text('Chaînes TV (mémoire tampon) :  ', style: TextStyle(color: kMuted)),
+          for (final (v, t) in const [(3, '3 s (standard)'), (5, '5 s'), (10, '10 s'), (20, '20 s'), (30, '30 s')])
+            ChoiceChip(
+              label: Text(t), selected: s.liveCacheSecs == v, showCheckmark: false,
+              labelStyle: TextStyle(color: s.liveCacheSecs == v ? kBg : kText, fontWeight: FontWeight.w700),
+              onSelected: (_) => s.setLiveCache(v),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        const Text("Les films téléchargés sont enregistrés dans l'espace de l'application (visible dans l'app Fichiers sur iPad / iPhone).",
+            style: TextStyle(color: kMuted, fontSize: 12.5)),
         _h('Profils et stockage'),
         Wrap(spacing: 10, runSpacing: 10, children: [
           OutlinedButton.icon(

@@ -1,4 +1,6 @@
 // Fiches films / séries / acteurs : données Xtream enrichies par TMDB.
+import 'dart:async';
+
 import 'models.dart';
 import 'net.dart';
 import 'text.dart';
@@ -9,6 +11,14 @@ const String kTmdbImg = 'https://image.tmdb.org/t/p/';
 
 String tmdbImg(dynamic path, [String size = 'w500']) =>
     (path == null || '$path'.isEmpty) ? '' : '$kTmdbImg$size$path';
+
+/// Remplace la taille d'une image TMDB (w300…) par une plus grande.
+String hires(String url, [String size = 'w1280']) {
+  if (url.isEmpty || !url.contains('/t/p/')) return url;
+  return url.replaceFirst(RegExp(r'/t/p/(w\d+|original|h\d+)/'), '/t/p/$size/');
+}
+
+final Semaphore _tmdbSem = Semaphore(6);
 
 class Tmdb {
   final String key;
@@ -25,9 +35,25 @@ class Tmdb {
     } else {
       p['api_key'] = key;
     }
-    final d = await getJson('$kTmdbApi$path?${Uri(queryParameters: p).query}',
-        headers: headers, timeout: const Duration(seconds: 20));
-    return d is Map ? Map<String, dynamic>.from(d) : {};
+    final url = '$kTmdbApi$path?${Uri(queryParameters: p).query}';
+    Object? last;
+    for (var attempt = 0; attempt < 4; attempt++) {
+      try {
+        final d = await _tmdbSem.run(() => getJson(url, headers: headers, timeout: const Duration(seconds: 15)));
+        return d is Map ? Map<String, dynamic>.from(d) : {};
+      } on HttpStatusError catch (e) {
+        last = e;
+        if (e.code == 401 || e.code == 404) rethrow;
+        var wait = 1.5 * (attempt + 1);
+        final ra = double.tryParse(e.retryAfter ?? '');
+        if (ra != null && ra > wait) wait = ra;
+        await Future.delayed(Duration(milliseconds: (wait.clamp(0, 8) * 1000).toInt()));
+      } catch (e) {
+        last = e;
+        await Future.delayed(Duration(milliseconds: 1000 * (attempt + 1)));
+      }
+    }
+    throw last ?? Exception('TMDB injoignable');
   }
 
   Future<int?> search(String kind, String title, String year) async {
@@ -40,10 +66,16 @@ class Tmdb {
     return res.isEmpty ? null : ((res.first as Map)['id'] as num?)?.toInt();
   }
 
-  Future<Map<String, dynamic>> movie(int id) => get('/movie/$id',
-      {'append_to_response': 'credits,videos,release_dates', 'include_video_language': '${lang.substring(0, 2)},en,null'});
-  Future<Map<String, dynamic>> tv(int id) => get('/tv/$id',
-      {'append_to_response': 'credits,videos,content_ratings', 'include_video_language': '${lang.substring(0, 2)},en,null'});
+  Future<Map<String, dynamic>> movie(int id) => get('/movie/$id', {
+        'append_to_response': 'credits,videos,release_dates,images',
+        'include_video_language': '${lang.substring(0, 2)},en,null',
+        'include_image_language': '${lang.substring(0, 2)},en,null',
+      });
+  Future<Map<String, dynamic>> tv(int id) => get('/tv/$id', {
+        'append_to_response': 'credits,videos,content_ratings,images',
+        'include_video_language': '${lang.substring(0, 2)},en,null',
+        'include_image_language': '${lang.substring(0, 2)},en,null',
+      });
   Future<Map<String, dynamic>> season(int id, int n) => get('/tv/$id/season/$n');
 
   Future<Map<String, dynamic>> person(int id) async {
@@ -90,9 +122,24 @@ int _toMinutes(Map info) {
   return m2 != null ? int.parse(m2.group(1)!) : 0;
 }
 
+/// Logo-titre officiel (PNG transparent), en français sinon en anglais.
+String _pickLogo(Map<String, dynamic> d, String lang2) {
+  final logos = (((d['images'] as Map?)?['logos'] as List?) ?? []).whereType<Map>().toList();
+  for (final pref in [lang2, 'en', null]) {
+    final c = logos.where((l) => l['iso_639_1'] == pref && '${l['file_path'] ?? ''}'.endsWith('.png')).toList();
+    if (c.isNotEmpty) {
+      c.sort((a, b) => ((b['vote_average'] as num?) ?? 0).compareTo((a['vote_average'] as num?) ?? 0));
+      return tmdbImg(c.first['file_path'], 'w500');
+    }
+  }
+  return '';
+}
+
 void _mergeTmdb(Map<String, dynamic> meta, Map<String, dynamic> d, String kind, String lang2) {
   if (d.isEmpty) return;
   meta['tmdb_id'] = d['id'];
+  final logo = _pickLogo(d, lang2);
+  if (logo.isNotEmpty) meta['title_logo'] = logo;
   meta['title'] = d['title'] ?? d['name'] ?? meta['title'];
   meta['original_title'] = d['original_title'] ?? d['original_name'] ?? '';
   final ov = '${d['overview'] ?? ''}'.trim();
@@ -166,7 +213,7 @@ Future<Map<String, dynamic>> movieMeta(Map<String, dynamic>? src, Item item, Str
         meta['director'] = '${info['director'] ?? ''}';
         meta['cast'] = _splitList(info['cast'] ?? info['actors'])
             .take(24).map((n) => <String, dynamic>{'name': n, 'role': '', 'photo': ''}).toList();
-        meta['backdrop'] = _first(info['backdrop_path']);
+        meta['backdrop'] = hires(_first(info['backdrop_path']));
         final poster = '${info['movie_image'] ?? info['cover_big'] ?? ''}';
         if (poster.isNotEmpty) meta['poster'] = poster;
         meta['trailer'] = _yt(info['youtube_trailer']);
@@ -194,8 +241,13 @@ Future<Map<String, dynamic>> movieMeta(Map<String, dynamic>? src, Item item, Str
           return '';
         });
         if (cert.isNotEmpty) meta['age'] = cert;
+        meta['_tmdb'] = 'ok';
+      } else {
+        meta['_tmdb'] = 'none';
       }
-    } catch (_) {}
+    } catch (_) {
+      meta['_tmdb'] = 'fail';
+    }
   }
   return meta;
 }
@@ -221,7 +273,7 @@ Future<Map<String, dynamic>> seriesMeta(Map<String, dynamic>? src, Item item, St
     meta['director'] = '${info['director'] ?? ''}';
     meta['cast'] = _splitList(info['cast'])
         .take(24).map((n) => <String, dynamic>{'name': n, 'role': '', 'photo': ''}).toList();
-    meta['backdrop'] = _first(info['backdrop_path']);
+    meta['backdrop'] = hires(_first(info['backdrop_path']));
     final cover = '${info['cover'] ?? ''}';
     if (cover.isNotEmpty) meta['poster'] = cover;
     meta['trailer'] = _yt(info['youtube_trailer']);
@@ -288,11 +340,13 @@ Future<Map<String, dynamic>> seriesMeta(Map<String, dynamic>? src, Item item, St
         final cc = lang.contains('-') ? lang.split('-').last.toUpperCase() : 'FR';
         final cert = _pickCert(((d['content_ratings'] as Map?)?['results'] as List?) ?? [], cc, (e) => '${e['rating'] ?? ''}');
         if (cert.isNotEmpty) meta['age'] = cert;
+        meta['_tmdb'] = 'ok';
         for (final s in seasons.take(25)) {
           Map<String, dynamic> sd;
           try {
             sd = await tm.season(id, s['number'] as int);
           } catch (_) {
+            meta['_tmdb'] = 'fail';
             continue;
           }
           if ('${s['name']}'.isEmpty) s['name'] = '${sd['name'] ?? ''}';
@@ -315,8 +369,12 @@ Future<Map<String, dynamic>> seriesMeta(Map<String, dynamic>? src, Item item, St
             if (t['air_date'] != null) e['air_date'] = '${t['air_date']}';
           }
         }
+      } else {
+        meta['_tmdb'] = 'none';
       }
-    } catch (_) {}
+    } catch (_) {
+      meta['_tmdb'] = 'fail';
+    }
   }
   meta['seasons'] = seasons;
   return meta;
@@ -362,3 +420,90 @@ Future<Map<String, dynamic>?> personMeta(String tmdbKey, String lang, {int? id, 
     'credits': credits,
   };
 }
+
+
+// ---------------------------------------------------------------- listes TMDB (rangées façon OCTO+)
+List<Map<String, dynamic>> _tmdbRows(dynamic results, String kind) {
+  final out = <Map<String, dynamic>>[];
+  for (final r in (results as List? ?? []).whereType<Map>()) {
+    final date = '${r['release_date'] ?? r['first_air_date'] ?? ''}';
+    out.add({
+      'title': '${r['title'] ?? r['name'] ?? ''}',
+      'original_title': '${r['original_title'] ?? r['original_name'] ?? ''}',
+      'year': date.length >= 4 ? date.substring(0, 4) : '',
+      'poster': tmdbImg(r['poster_path'], 'w342'),
+      'backdrop': tmdbImg(r['backdrop_path'], 'w780'),
+      'kind': kind == 'movie' ? 'movie' : 'series',
+      'tmdb_id': r['id'],
+    });
+  }
+  return out;
+}
+
+/// /discover/{movie|tv} sur plusieurs pages.
+Future<List<Map<String, dynamic>>> tmdbDiscover(String key, String lang, String kind,
+    {int pages = 3, Map<String, String> params = const {}}) async {
+  final tm = Tmdb(key, lang);
+  final out = <Map<String, dynamic>>[];
+  final seen = <dynamic>{};
+  for (var page = 1; page <= pages; page++) {
+    Map<String, dynamic> d;
+    try {
+      d = await tm.get('/discover/$kind', {...params, 'page': '$page'});
+    } catch (e) {
+      if (page == 1) rethrow;
+      break;
+    }
+    for (final r in _tmdbRows(d['results'], kind)) {
+      if (seen.add(r['tmdb_id'])) out.add(r);
+    }
+    if (page >= ((d['total_pages'] as num?) ?? 1)) break;
+  }
+  return out;
+}
+
+Future<List<Map<String, dynamic>>> tmdbTrending(String key, String lang, String kind,
+    {int pages = 3, String window = 'week'}) async {
+  final tm = Tmdb(key, lang);
+  final out = <Map<String, dynamic>>[];
+  for (var page = 1; page <= pages; page++) {
+    try {
+      out.addAll(_tmdbRows((await tm.get('/trending/$kind/$window', {'page': '$page'}))['results'], kind));
+    } catch (e) {
+      if (page == 1) rethrow;
+      break;
+    }
+  }
+  return out;
+}
+
+Future<List<Map<String, dynamic>>> tmdbPopularPeople(String key, String lang) async {
+  final d = await Tmdb(key, lang).get('/person/popular');
+  return (d['results'] as List? ?? [])
+      .whereType<Map>()
+      .where((r) => r['profile_path'] != null && '${r['known_for_department'] ?? 'Acting'}' == 'Acting')
+      .map((r) => <String, dynamic>{'name': '${r['name'] ?? ''}', 'photo': tmdbImg(r['profile_path'], 'w185'), 'tmdb_id': r['id']})
+      .toList();
+}
+
+/// Logos des plateformes (région France) : [{id, logo}].
+Future<List<Map<String, dynamic>>> tmdbProviderLogos(String key, String lang, String kind) async {
+  final d = await Tmdb(key, lang).get('/watch/providers/$kind', {'watch_region': 'FR'});
+  return (d['results'] as List? ?? [])
+      .whereType<Map>()
+      .map((r) => <String, dynamic>{'id': r['provider_id'], 'logo': tmdbImg(r['logo_path'], 'w300')})
+      .toList();
+}
+
+/// Plateformes (identifiants TMDB / JustWatch, région France).
+const List<(int, String)> kProviders = [
+  (8, 'Netflix'), (119, 'Prime Video'), (337, 'Disney+'), (350, 'Apple TV+'), (1899, 'Max'),
+  (283, 'Crunchyroll'), (381, 'Canal+'), (531, 'Paramount+'),
+];
+
+/// Studios : nom, sociétés TMDB, couleurs de la tuile.
+const List<(String, String, int, int)> kStudios = [
+  ('Disney', '2', 0xFF0D2A6B, 0xFF3D7FE0), ('DreamWorks', '521', 0xFF0B3A7A, 0xFF6AB0FF),
+  ('DC', '9993|128064|429', 0xFF0A1A3A, 0xFF1F6FE5), ('Pixar', '3', 0xFFE9EDF3, 0xFFAEB8C8),
+  ('MARVEL', '420|7505', 0xFF8D0B10, 0xFFEC1D24), ('STAR WARS', '1', 0xFF050505, 0xFF3A3A3A),
+];

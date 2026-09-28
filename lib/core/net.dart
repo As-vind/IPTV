@@ -1,4 +1,5 @@
 // Réseau : client HTTP tolérant (certificats IPTV souvent invalides) + décodage.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -36,9 +37,41 @@ Future<String> getText(String url, {Map<String, String>? headers, Duration timeo
   final h = {'User-Agent': kUserAgent, 'Accept': '*/*', ...?headers};
   final r = await _client.get(Uri.parse(url), headers: h).timeout(timeout);
   if (r.statusCode >= 400) {
-    throw HttpException('Erreur HTTP ${r.statusCode}', uri: Uri.parse(url));
+    throw HttpStatusError(r.statusCode, url, r.headers['retry-after']);
   }
   return decodeBody(r.bodyBytes);
+}
+
+/// Erreur HTTP avec son code (pour savoir s'il faut réessayer).
+class HttpStatusError extends HttpException {
+  final int code;
+  final String? retryAfter;
+  HttpStatusError(this.code, String url, [this.retryAfter]) : super('Erreur HTTP $code', uri: Uri.tryParse(url));
+}
+
+/// Limite le nombre de requêtes simultanées (TMDB refuse les rafales).
+class Semaphore {
+  int _free;
+  final List<Completer<void>> _queue = [];
+  Semaphore(this._free);
+  Future<T> run<T>(Future<T> Function() task) async {
+    if (_free > 0) {
+      _free--;
+    } else {
+      final c = Completer<void>();
+      _queue.add(c);
+      await c.future;
+    }
+    try {
+      return await task();
+    } finally {
+      if (_queue.isNotEmpty) {
+        _queue.removeAt(0).complete();
+      } else {
+        _free++;
+      }
+    }
+  }
 }
 
 dynamic _jsonDecode(String s) => jsonDecode(s);

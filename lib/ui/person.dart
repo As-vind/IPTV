@@ -23,6 +23,8 @@ class _PersonScreenState extends State<PersonScreen> {
   bool _loading = true;
   bool _full = false;
 
+  int _tries = 0;
+
   @override
   void initState() {
     super.initState();
@@ -30,14 +32,27 @@ class _PersonScreenState extends State<PersonScreen> {
     if (s.tmdbKey.isEmpty) {
       _loading = false;
     } else {
-      s.person(id: widget.tmdbId, name: widget.name).then((m) {
-        if (!mounted) return;
-        setState(() {
-          _m = m;
-          _loading = false;
-        });
-      });
+      _load();
     }
+  }
+
+  /// TMDB ne répond pas toujours du premier coup : deux nouvelles tentatives automatiques.
+  void _load({bool force = false}) {
+    final s = AppScope.read(context);
+    s.person(id: widget.tmdbId, name: widget.name, force: force).then((m) {
+      if (!mounted) return;
+      if (m == null && _tries < 2) {
+        _tries++;
+        Future.delayed(Duration(milliseconds: 2500 * _tries), () {
+          if (mounted) _load(force: true);
+        });
+        return;
+      }
+      setState(() {
+        _m = m;
+        _loading = false;
+      });
+    });
   }
 
   @override
@@ -123,7 +138,22 @@ class _PersonScreenState extends State<PersonScreen> {
                   Text('${m?['name'] ?? widget.name}', style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w900)),
                   if (bits.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(bits.join('   ·   '), style: const TextStyle(color: kMuted))),
                   const SizedBox(height: 10),
-                  if (_loading) const Text('Chargement…', style: TextStyle(color: kMuted)),
+                  if (_loading) const Text('Connexion à TMDB…', style: TextStyle(color: kMuted)),
+                  if (!_loading && m == null && s.tmdbKey.isNotEmpty) ...[
+                    const Text('TMDB ne répond pas pour le moment (ou aucune fiche pour cette personne).',
+                        style: TextStyle(color: kMuted)),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _loading = true;
+                          _tries = 0;
+                        });
+                        _load(force: true);
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Réessayer'),
+                    ),
+                  ],
                   if (!_loading && s.tmdbKey.isEmpty)
                     const Text('Ajoutez une clé TMDB (gratuite) dans Paramètres pour la photo, la biographie et la filmographie.',
                         style: TextStyle(color: kMuted)),

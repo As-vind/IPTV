@@ -1,5 +1,6 @@
 // Lecteur vidéo (media_kit / mpv) : direct, films, épisodes, zapping, pistes, reprise.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,6 +36,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _saveT;
   Duration _pos = Duration.zero;
   Duration _dur = Duration.zero;
+  Duration _buf = Duration.zero;
+  bool _localFile = false;
   bool _playing = false;
   bool _buffering = true;
   String _error = '';
@@ -52,6 +55,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _subs.addAll([
       _player.stream.position.listen((p) => setState(() => _pos = p)),
       _player.stream.duration.listen((d) => setState(() => _dur = d)),
+      _player.stream.buffer.listen((b) => _buf = b),
       _player.stream.playing.listen((p) => setState(() => _playing = p)),
       _player.stream.buffering.listen((b) => setState(() => _buffering = b)),
       _player.stream.error.listen((e) => setState(() => _error = e)),
@@ -89,7 +93,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
     final it = _cur;
     _s.noteLive(it);
-    await _player.open(Media(it.url, httpHeaders: _headers(it)), play: true);
+    final local = _s.downloads.localFile(it.url);
+    _localFile = local != null;
+    await _applyCache(local != null);
+    await _player.open(local != null ? Media(local) : Media(it.url, httpHeaders: _headers(it)), play: true);
     final pr = _s.progressOf(it.url);
     if (resume && !_live && pr != null && pr['done'] != true && ((pr['pos'] as num?) ?? 0) > 30000) {
       final target = Duration(milliseconds: (pr['pos'] as num).toInt());
@@ -108,6 +115,68 @@ class _PlayerScreenState extends State<PlayerScreen> {
         setState(() => _epg = t);
       }
     }
+  }
+
+  /// Mémoire tampon : films / séries pré-chargés 1, 5 ou 10 min à l'avance (cache sur disque) ;
+  /// chaînes TV : quelques secondes de réserve.
+  Future<void> _applyCache(bool local) async {
+    try {
+      final p = _player.platform as dynamic;
+      Future<void> set(String k, String v) async {
+        try {
+          await p.setProperty(k, v);
+        } catch (_) {}
+      }
+
+      if (local) {
+        await set('cache', 'no');
+        await set('cache-pause-initial', 'no');
+        return;
+      }
+      await set('cache', 'yes');
+      if (_live) {
+        final secs = _s.liveCacheSecs;
+        await set('cache-on-disk', 'no');
+        await set('cache-secs', '$secs');
+        await set('demuxer-readahead-secs', '$secs');
+        await set('demuxer-max-bytes', '120MiB');
+        await set('cache-pause-initial', secs > 3 ? 'yes' : 'no');
+        await set('cache-pause-wait', '${secs > 3 ? secs : 1}');
+        return;
+      }
+      final mins = _s.bufferMin;
+      if (mins > 0) {
+        await set('cache-on-disk', 'yes');
+        await set('cache-dir', (await _cacheDir()).path);
+        await set('cache-secs', '${mins * 60}');
+        await set('demuxer-readahead-secs', '${mins * 60}');
+        await set('demuxer-max-bytes', '${mins * 160}MiB');
+        await set('demuxer-max-back-bytes', '60MiB');
+        await set('cache-pause-initial', 'yes');
+        await set('cache-pause-wait', '${mins * 60 < 60 ? mins * 60 : 60}');
+      } else {
+        await set('cache-on-disk', 'no');
+        await set('cache-secs', '20');
+        await set('demuxer-readahead-secs', '20');
+        await set('demuxer-max-bytes', '150MiB');
+        await set('cache-pause-initial', 'no');
+        await set('cache-pause-wait', '1');
+      }
+    } catch (_) {}
+  }
+
+  Future<Directory> _cacheDir() async {
+    final d = Directory('${_s.dataDir.path}/tampon');
+    await d.create(recursive: true);
+    return d;
+  }
+
+  String get _bufText {
+    if (_localFile) return '✓ Fichier téléchargé (hors ligne)';
+    if (_live || _s.bufferMin == 0 || _dur <= Duration.zero) return '';
+    final ahead = _buf - _pos;
+    if (_buf >= _dur - const Duration(seconds: 2)) return '⬇ Entièrement chargé';
+    return ahead > Duration.zero ? "⬇ ${fmtMs(ahead.inMilliseconds)} d'avance" : '';
   }
 
   void _saveProgress() {
@@ -375,6 +444,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             Text(fmtMs(durMs), style: const TextStyle(fontSize: 12)),
                           ] else
                             const Spacer(),
+                          if (_bufText.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(_bufText, style: const TextStyle(color: Color(0xFFB9C6DA), fontSize: 12, fontWeight: FontWeight.w600)),
+                            ),
                           _btn(Icons.audiotrack, () => _pickTrack(true), size: 24, tip: 'Audio'),
                           _btn(Icons.subtitles, () => _pickTrack(false), size: 24, tip: 'Sous-titres'),
                         ]),
