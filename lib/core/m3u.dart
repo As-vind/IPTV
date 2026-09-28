@@ -89,11 +89,11 @@ List<Item> groupM3uSeries(List<Item> items) {
           series[key] = s;
           out.add(s);
         }
-        final num = int.parse(m.group(3)!);
+        final epNum = int.parse(m.group(3)!);
         final season = '${int.parse(m.group(2)!)}';
         final epName = _strip(m.group(4)!);
         s.episodes!.putIfAbsent(season, () => []).add(
-            Ep(name: epName.isEmpty ? 'Épisode $num' : epName, num: num, url: it.url, opts: it.opts));
+            Ep(name: epName.isEmpty ? 'Épisode $epNum' : epName, number: epNum, url: it.url, opts: it.opts));
         if (s.logo.isEmpty && it.logo.isNotEmpty) s.logo = it.logo;
         continue;
       }
@@ -102,7 +102,7 @@ List<Item> groupM3uSeries(List<Item> items) {
   }
   for (final s in series.values) {
     for (final eps in s.episodes!.values) {
-      eps.sort((a, b) => a.num.compareTo(b.num));
+      eps.sort((a, b) => a.number.compareTo(b.number));
     }
   }
   return out;

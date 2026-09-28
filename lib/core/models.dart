@@ -3,7 +3,7 @@ import 'countries.dart';
 
 class Ep {
   String name;
-  int num;
+  int number;
   String url;
   List<String> opts;
   String plot;
@@ -14,7 +14,7 @@ class Ep {
 
   Ep({
     required this.name,
-    required this.num,
+    required this.number,
     required this.url,
     this.opts = const [],
     this.plot = '',
@@ -25,13 +25,13 @@ class Ep {
   });
 
   Map<String, dynamic> toJson() => {
-        'name': name, 'num': num, 'url': url, 'opts': opts, 'plot': plot,
+        'name': name, 'num': number, 'url': url, 'opts': opts, 'plot': plot,
         'runtime': runtime, 'still': still, 'rating': rating, 'air_date': airDate,
       };
 
   factory Ep.fromJson(Map<String, dynamic> j) => Ep(
         name: '${j['name'] ?? ''}',
-        num: (j['num'] as num?)?.toInt() ?? 0,
+        number: (j['num'] as num?)?.toInt() ?? 0,
         url: '${j['url'] ?? ''}',
         opts: ((j['opts'] as List?) ?? const []).map((e) => '$e').toList(),
         plot: '${j['plot'] ?? ''}',
