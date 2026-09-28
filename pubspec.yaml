@@ -1,0 +1,39 @@
+name: iptv_player
+description: "IPTV Player — TV, films et séries IPTV (M3U / Xtream) pour Android, Android TV et iPad. Conçu par Asvind."
+publish_to: "none"
+version: 2.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  shared_preferences: ^2.3.0
+  path_provider: ^2.1.4
+  url_launcher: ^6.3.0
+  media_kit: ^1.1.11
+  media_kit_video: ^1.2.5
+  media_kit_libs_video: ^1.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo_dark.png
+    - assets/logo_light.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  remove_alpha_ios: true
+  background_color_ios: "#0B183E"
+  adaptive_icon_background: "#0B183E"
+  adaptive_icon_foreground: "assets/icon_foreground.png"
+  min_sdk_android: 21

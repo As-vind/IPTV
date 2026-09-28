@@ -1,0 +1,131 @@
+name: Compilation IPTV Player
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_VERSION: "2.1"
+
+jobs:
+  verification:
+    name: Vérification du code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Préparer les plateformes
+        run: bash tool/setup_platforms.sh
+      - name: Analyse
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.txt 2>&1
+          code=$?
+          cat analyze.txt
+          grep -E "^\s*error •" analyze.txt | head -45 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $code
+      - name: Tests
+        run: flutter test
+
+  android:
+    name: APK Android
+    needs: verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Clé de signature stable (mises à jour sans désinstaller)
+        run: |
+          mkdir -p ~/.android
+          cp ci/debug.keystore ~/.android/debug.keystore
+      - name: Préparer les plateformes
+        run: bash tool/setup_platforms.sh
+      - name: Compiler l'APK
+        run: |
+          set +e
+          flutter build apk --release --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          code=$?
+          tail -120 build.txt
+          grep -E "error:|Error:|FAILURE|What went wrong" -A3 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $code
+      - name: Renommer
+        run: cp build/app/outputs/flutter-apk/app-release.apk "IPTV-Player-${APP_VERSION}.${{ github.run_number }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: IPTV-Player-*.apk
+
+  ios:
+    name: iPad / iPhone (non signé)
+    needs: verification
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Préparer les plateformes
+        run: |
+          bash tool/setup_platforms.sh
+          flutter build ios --config-only --release --no-codesign || true
+          python3 tool/patch_platforms.py
+      - name: Compiler
+        run: |
+          set +e
+          flutter build ios --release --no-codesign --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          code=$?
+          tail -120 build.txt
+          grep -E "error:|Error:|Failed" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $code
+      - name: Créer l'IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry "IPTV-Player-${APP_VERSION}.${{ github.run_number }}.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: IPTV-Player-*.ipa
+
+  publication:
+    name: Publication
+    needs: [android, ios]
+    if: always() && needs.android.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}.${{ github.run_number }}
+          name: IPTV Player ${{ env.APP_VERSION }}.${{ github.run_number }}
+          body: |
+            **IPTV Player** — conçu par Asvind.
+
+            - **Android / Android TV** : téléchargez le fichier `.apk` et ouvrez-le sur l'appareil
+              (autorisez l'installation d'applications inconnues si demandé).
+            - **iPad / iPhone** : le fichier `.ipa` (s'il est présent) s'installe avec Sideloadly ou AltStore
+              en le signant avec votre identifiant Apple.
+          files: dist/*
+          make_latest: true

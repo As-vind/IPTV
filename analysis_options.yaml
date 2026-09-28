@@ -1,0 +1,5 @@
+analyzer:
+  exclude:
+    - build/**
+  errors:
+    unused_import: warning
