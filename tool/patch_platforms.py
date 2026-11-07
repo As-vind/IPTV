@@ -25,6 +25,26 @@ dr = os.path.join(ROOT, "android/app/src/main/res/drawable")
 os.makedirs(dr, exist_ok=True)
 shutil.copy(os.path.join(ROOT, "assets/tv_banner.png"), os.path.join(dr, "tv_banner.png"))
 
+# ---------------- Android : modules (ex. file_picker) compilés avec le même SDK récent que l'application
+fix = os.path.join(ROOT, "android/fix_sdk.gradle")
+open(fix, "w", encoding="utf-8").write("""subprojects { p ->
+    def fix = {
+        if (p.name != 'app' && p.hasProperty('android')) {
+            try { p.android.compileSdkVersion 36 } catch (ignored) { }
+        }
+    }
+    if (p.state.executed) { fix() } else { p.afterEvaluate { fix() } }
+}
+""")
+for rname in ("android/build.gradle.kts", "android/build.gradle"):
+    rp = os.path.join(ROOT, rname)
+    if os.path.exists(rp):
+        r = open(rp, encoding="utf-8").read()
+        if "fix_sdk.gradle" not in r:
+            line = 'apply(from = "fix_sdk.gradle")\n' if rname.endswith(".kts") else "apply from: 'fix_sdk.gradle'\n"
+            open(rp, "w", encoding="utf-8").write(r + "\n" + line)
+        break
+
 # ---------------- Android : signature « stores » (android/key.properties créé en CI à partir des secrets)
 for gname in ("android/app/build.gradle.kts", "android/app/build.gradle"):
     gp = os.path.join(ROOT, gname)
