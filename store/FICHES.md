@@ -11,7 +11,11 @@
 IPTV Player est un lecteur élégant pour regarder **votre propre abonnement IPTV** sur téléphone, tablette et Android TV.
 
 ⚠️ **Aucun contenu n'est fourni** : l'application ne contient ni chaîne, ni film, ni série.
-Vous ajoutez vous-même la liste M3U ou le compte Xtream Codes fourni par votre opérateur.
+Vous ajoutez vous-même la liste M3U (lien ou fichier) ou le compte Xtream Codes fourni par votre opérateur.
+
+**Ajout facile, même sur TV**
+• Lien M3U, fichier M3U sur l'appareil, ou compte Xtream Codes
+• Sur une TV : envoyez le fichier depuis votre téléphone ou PC par le Wi-Fi, sans clé USB
 
 **Une interface pensée pour le salon**
 • Page d'accueil avec grande bannière animée, « Reprendre », chaînes du moment

@@ -89,9 +89,10 @@ double scaleFor(double w, double h, bool phone) {
 double clampK(double v, double lo, double hi) => v < lo ? lo : (v > hi ? hi : v);
 
 /// Téléphone (en portrait ou en paysage) — une TV Android fait souvent 960 × 540 : ce n'est pas un téléphone.
+/// Les téléphones allongés (412 × 915…) restent des téléphones.
 bool isPhone(BuildContext context) {
   final s = MediaQuery.sizeOf(context);
-  return s.shortestSide < 600 && s.longestSide < 900;
+  return s.shortestSide < 480 || (s.shortestSide < 600 && s.longestSide < 900);
 }
 
 /// Mise à l'échelle transmise aux pages (calculée d'après la zone de contenu réelle).

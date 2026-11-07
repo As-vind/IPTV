@@ -81,6 +81,59 @@ class _FocusTileState extends State<FocusTile> {
   }
 }
 
+/// Bouton « pilule » ou rond du menu : contour blanc bien visible quand il a le focus (télécommande, clavier).
+class NavButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final bool selected;
+  final bool circle;
+  final Color color;
+  final Color selectedColor;
+  final BorderSide side;
+  final String? tooltip;
+  final bool autofocus;
+  const NavButton({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.selected = false,
+    this.circle = false,
+    this.color = Colors.transparent,
+    this.selectedColor = const Color(0x21FFFFFF),
+    this.side = BorderSide.none,
+    this.tooltip,
+    this.autofocus = false,
+  });
+  @override
+  State<NavButton> createState() => _NavButtonState();
+}
+
+class _NavButtonState extends State<NavButton> {
+  bool _focus = false;
+  @override
+  Widget build(BuildContext context) {
+    final side = _focus ? const BorderSide(color: Colors.white, width: 2.5) : widget.side;
+    final ShapeBorder shape = widget.circle ? CircleBorder(side: side) : StadiumBorder(side: side);
+    final btn = AnimatedScale(
+      scale: _focus ? 1.06 : 1,
+      duration: const Duration(milliseconds: 120),
+      child: Material(
+        color: _focus ? Colors.white.withValues(alpha: .2) : (widget.selected ? widget.selectedColor : widget.color),
+        shape: shape,
+        child: InkWell(
+          autofocus: widget.autofocus,
+          customBorder: widget.circle ? const CircleBorder() : const StadiumBorder(),
+          focusColor: Colors.transparent,
+          onFocusChange: (f) => setState(() => _focus = f),
+          onTap: widget.onTap,
+          child: widget.child,
+        ),
+      ),
+    );
+    return widget.tooltip == null ? btn : Tooltip(message: widget.tooltip!, child: btn);
+  }
+}
+
 class Pill extends StatelessWidget {
   final String text;
   final Color color;

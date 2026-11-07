@@ -87,7 +87,9 @@ if "NSAppTransportSecurity" not in p:
              "\t\t<key>NSAllowsArbitraryLoadsForMedia</key>\n\t\t<true/>\n\t</dict>\n"
              "\t<key>UIFileSharingEnabled</key>\n\t<true/>\n"
              "\t<key>LSSupportsOpeningDocumentsInPlace</key>\n\t<true/>\n"
-             "\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n")
+             "\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n"
+             "\t<key>NSLocalNetworkUsageDescription</key>\n"
+             "\t<string>Recevoir une liste M3U envoyée depuis un autre appareil du même réseau Wi-Fi.</string>\n")
     idx = p.rfind("</dict>")
     p = p[:idx] + extra + p[idx:]
 open(plist, "w", encoding="utf-8").write(p)

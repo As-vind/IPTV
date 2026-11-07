@@ -1,7 +1,7 @@
 name: iptv_player
 description: "IPTV Player — TV, films et séries IPTV (M3U / Xtream) pour Android, Android TV et iPad. Conçu par Asvind."
 publish_to: "none"
-version: 2.1.0+1
+version: 2.7.0+1
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -13,6 +13,7 @@ dependencies:
   shared_preferences: ^2.3.0
   path_provider: ^2.1.4
   url_launcher: ^6.3.0
+  file_picker: '>=8.1.7 <12.0.0'
   media_kit: ^1.1.11
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5

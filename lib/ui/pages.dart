@@ -568,16 +568,23 @@ class _Welcome extends StatelessWidget {
           const SizedBox(height: 26),
           const Text('Bienvenue 👋', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          const Text('Ajoutez votre liste M3U ou votre compte Xtream Codes pour commencer.\n'
+          const Text('Ajoutez votre liste M3U (lien ou fichier) ou votre compte Xtream Codes pour commencer.\n'
               "Aucun contenu n'est fourni avec l'application.",
               textAlign: TextAlign.center, style: TextStyle(color: kMuted, fontSize: 15)),
           const SizedBox(height: 22),
-          FilledButton.icon(
-            autofocus: true,
-            onPressed: () => showSourceDialog(context),
-            icon: const Icon(Icons.add),
-            label: const Text('Ajouter une source'),
-          ),
+          Wrap(spacing: 12, runSpacing: 12, alignment: WrapAlignment.center, children: [
+            FilledButton.icon(
+              autofocus: true,
+              onPressed: () => showSourceDialog(context),
+              icon: const Icon(Icons.add),
+              label: const Text('Lien M3U ou compte Xtream'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => showSourceDialog(context, file: true),
+              icon: const Icon(Icons.insert_drive_file_outlined),
+              label: const Text('Ouvrir un fichier M3U'),
+            ),
+          ]),
         ]),
       ),
     );

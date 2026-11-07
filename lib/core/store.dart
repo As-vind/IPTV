@@ -18,7 +18,7 @@ import 'text.dart';
 import 'xtream.dart';
 
 const String kAppTitle = 'IPTV Player';
-const String kAppVersion = '2.6';
+const String kAppVersion = '2.7';
 
 /// Clé TMDB fournie à la compilation (secret GitHub TMDB_KEY) : jamais écrite dans le code public.
 const String kTmdbBuiltin = String.fromEnvironment('TMDB_KEY');
@@ -280,6 +280,9 @@ class AppState extends ChangeNotifier {
     sources.removeWhere((s) => s['id'] == sid);
     try {
       await File(_cachePath(sid)).delete();
+    } catch (_) {}
+    try {
+      await File('${_dir.path}/playlists/$sid.m3u').delete();
     } catch (_) {}
     if (currentSource?['id'] == sid) {
       currentSource = null;

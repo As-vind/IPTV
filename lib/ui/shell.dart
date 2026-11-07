@@ -12,7 +12,8 @@ import 'settings.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-const _kSidebarW = 290.0;
+/// Largeur du menu latéral : 290 sur grand écran, plus étroit sur tablette.
+double _sidebarW(double w) => clampK(w * .23, 220, 290);
 
 class _NavDef {
   final String key;
@@ -55,7 +56,11 @@ class _ShellState extends State<Shell> implements RootNavigator {
     });
   }
 
-  bool _collapsed(AppState s) => s.cfg['sidebar_collapsed'] == true;
+  /// Menu replié : choix de l'utilisateur, sinon replié d'office sur les écrans étroits (tablette en portrait).
+  bool _collapsed(AppState s, double w) {
+    final v = s.cfg['sidebar_collapsed'];
+    return v is bool ? v : w < 900;
+  }
 
   void _setCollapsed(AppState s, bool v) {
     s.cfg['sidebar_collapsed'] = v;
@@ -136,9 +141,10 @@ class _ShellState extends State<Shell> implements RootNavigator {
       WidgetsBinding.instance.addPostFrameCallback((_) => toast(context, s.error!));
     }
     final phone = isPhone(context);
-    final collapsed = !phone && _collapsed(s);
     final size = MediaQuery.sizeOf(context);
-    final side = (!phone && !collapsed) ? _kSidebarW : 0.0;
+    final collapsed = !phone && _collapsed(s, size.width);
+    final landscapePhone = phone && size.width > size.height;
+    final side = (!phone && !collapsed) ? _sidebarW(size.width) : (landscapePhone ? 76.0 : 0.0);
     final k = scaleFor(size.width - side, size.height, phone);
     final keys = _nav.map((e) => e.key).toList();
     final stack = IndexedStack(
@@ -153,21 +159,60 @@ class _ShellState extends State<Shell> implements RootNavigator {
     );
 
     Widget body;
-    if (phone) {
-      final phoneKeys = ['home', 'movie', 'series', 'live', 'favorites'];
+    final phoneKeys = ['home', 'movie', 'series', 'live', 'favorites'];
+    final topIcons = Positioned(
+      top: 0, right: 4,
+      child: SafeArea(
+        child: Row(children: [
+          _roundIcon(Icons.search, () => go('search'), tip: 'Recherche'),
+          if (s.downloadsEnabled) _roundIcon(Icons.download_outlined, () => go('downloads'), tip: 'Téléchargements'),
+          _avatarMenu(s, size: 30),
+        ]),
+      ),
+    );
+    if (landscapePhone) {
+      // Téléphone couché : barre de navigation à gauche pour garder toute la hauteur aux images.
       body = Scaffold(
-        body: Stack(children: [
-          stack,
-          Positioned(
-            top: 0, right: 4,
+        body: Row(children: [
+          Container(
+            width: side,
+            color: const Color(0xFF0B0F15),
             child: SafeArea(
-              child: Row(children: [
-                _roundIcon(Icons.search, () => go('search')),
-                if (s.downloadsEnabled) _roundIcon(Icons.download_outlined, () => go('downloads')),
-                _avatarMenu(s, size: 30),
+              right: false,
+              child: Column(children: [
+                const SizedBox(height: 8),
+                for (final key in phoneKeys)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: NavButton(
+                      circle: true,
+                      selected: _root == key,
+                      tooltip: _nav.firstWhere((e) => e.key == key).label,
+                      onTap: () => go(key),
+                      child: SizedBox(
+                          width: 50, height: 50,
+                          child: Icon(_nav.firstWhere((e) => e.key == key).icon, color: kAccent, size: 25)),
+                    ),
+                  ),
               ]),
             ),
           ),
+          Expanded(
+            child: Stack(children: [
+              Positioned.fill(child: stack),
+              topIcons,
+              if (s.loading)
+                const Positioned(top: 0, left: 0, right: 0,
+                    child: LinearProgressIndicator(minHeight: 2, color: kAccent, backgroundColor: Colors.transparent)),
+            ]),
+          ),
+        ]),
+      );
+    } else if (phone) {
+      body = Scaffold(
+        body: Stack(children: [
+          stack,
+          topIcons,
           if (s.loading)
             const Positioned(top: 0, left: 0, right: 0, child: LinearProgressIndicator(minHeight: 2, color: kAccent, backgroundColor: Colors.transparent)),
         ]),
@@ -190,7 +235,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
     } else {
       body = Scaffold(
         body: Row(children: [
-          if (!collapsed) _sidebar(s),
+          if (!collapsed) _sidebar(s, side),
           Expanded(
             child: Stack(children: [
               Positioned.fill(child: stack),
@@ -215,23 +260,22 @@ class _ShellState extends State<Shell> implements RootNavigator {
     );
   }
 
-  Widget _roundIcon(IconData ic, VoidCallback onTap) => Padding(
+  Widget _roundIcon(IconData ic, VoidCallback onTap, {String? tip}) => Padding(
         padding: const EdgeInsets.all(4),
-        child: Material(
+        child: NavButton(
+          circle: true,
           color: const Color(0x8C0A0E16),
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: SizedBox(width: 40, height: 40, child: Icon(ic, color: Colors.white, size: 22)),
-          ),
+          tooltip: tip,
+          onTap: onTap,
+          child: SizedBox(width: 44, height: 44, child: Icon(ic, color: Colors.white, size: 22)),
         ),
       );
 
   // ---------------------------------------------------------------- menu latéral
-  Widget _sidebar(AppState s) {
+  Widget _sidebar(AppState s, double w) {
+    final f = w / 290;
     return Container(
-      width: _kSidebarW,
+      width: w,
       decoration: const BoxDecoration(
         gradient: LinearGradient(colors: [kSideTop, kSideBottom], begin: Alignment.topLeft, end: Alignment.bottomRight),
         border: Border(right: BorderSide(color: Color(0x12FFFFFF))),
@@ -239,7 +283,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
       child: SafeArea(
         right: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+          padding: EdgeInsets.fromLTRB(18 * f, 16, 18 * f, 12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               _glassPill('Modifier', () => go('settings')),
@@ -247,12 +291,12 @@ class _ShellState extends State<Shell> implements RootNavigator {
               _glassRound(Icons.view_sidebar_outlined, () => _setCollapsed(s, true), tip: 'Replier le menu'),
             ]),
             const SizedBox(height: 22),
-            const Align(alignment: Alignment.centerLeft, child: Logo(height: 44)),
+            Align(alignment: Alignment.centerLeft, child: Logo(height: 44 * f)),
             const SizedBox(height: 18),
             Expanded(
               child: ListView(padding: EdgeInsets.zero, children: [
                 for (final n in _nav)
-                  if (n.key != 'downloads' || s.downloadsEnabled) _navItem(n),
+                  if (n.key != 'downloads' || s.downloadsEnabled) _navItem(n, f),
                 _profileItem(s),
               ]),
             ),
@@ -268,28 +312,22 @@ class _ShellState extends State<Shell> implements RootNavigator {
     );
   }
 
-  Widget _navItem(_NavDef n) {
-    final sel = _root == n.key;
+  Widget _navItem(_NavDef n, double f) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: Material(
-        color: sel ? Colors.white.withValues(alpha: .13) : Colors.transparent,
-        shape: const StadiumBorder(),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          focusColor: Colors.white.withValues(alpha: .18),
-          onTap: () => go(n.key),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-            child: Row(children: [
-              Icon(n.icon, color: kAccent, size: 28),
-              const SizedBox(width: 16),
-              Flexible(
-                child: Text(n.label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600, color: Colors.white)),
-              ),
-            ]),
-          ),
+      child: NavButton(
+        selected: _root == n.key,
+        onTap: () => go(n.key),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16 * f, vertical: 11),
+          child: Row(children: [
+            Icon(n.icon, color: kAccent, size: 28 * clampK(f, .85, 1.0)),
+            SizedBox(width: 16 * f),
+            Flexible(
+              child: Text(n.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 19 * clampK(f, .86, 1.0), fontWeight: FontWeight.w600, color: Colors.white)),
+            ),
+          ]),
         ),
       ),
     );
@@ -329,48 +367,38 @@ class _ShellState extends State<Shell> implements RootNavigator {
     );
   }
 
-  Widget _glassPill(String text, VoidCallback onTap) => Material(
+  Widget _glassPill(String text, VoidCallback onTap) => NavButton(
         color: Colors.white.withValues(alpha: .1),
-        shape: StadiumBorder(side: BorderSide(color: Colors.white.withValues(alpha: .14))),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Text(text, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white)),
-          ),
+        side: BorderSide(color: Colors.white.withValues(alpha: .14)),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Text(text, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white)),
         ),
       );
 
-  Widget _glassRound(IconData ic, VoidCallback onTap, {String? tip}) => Tooltip(
-        message: tip ?? '',
-        child: Material(
-          color: Colors.white.withValues(alpha: .1),
-          shape: CircleBorder(side: BorderSide(color: Colors.white.withValues(alpha: .14))),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: SizedBox(width: 46, height: 46, child: Icon(ic, color: Colors.white, size: 22)),
-          ),
-        ),
+  Widget _glassRound(IconData ic, VoidCallback onTap, {String? tip}) => NavButton(
+        circle: true,
+        color: Colors.white.withValues(alpha: .1),
+        side: BorderSide(color: Colors.white.withValues(alpha: .14)),
+        tooltip: tip,
+        onTap: onTap,
+        child: SizedBox(width: 46, height: 46, child: Icon(ic, color: Colors.white, size: 22)),
       );
 
   // ---------------------------------------------------------------- barre flottante (menu replié)
   Widget _pillBar(AppState s) {
     Widget tab(String key, {String? text, IconData? icon}) {
       final sel = _root == key;
-      return Material(
-        color: sel ? const Color(0xC00A0E16) : Colors.transparent,
-        shape: const StadiumBorder(),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: () => go(key),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: text != null ? 16 : 12, vertical: 9),
-            child: text != null
-                ? Text(text, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sel ? kAccent : Colors.white))
-                : Icon(icon, size: 22, color: sel ? kAccent : Colors.white),
-          ),
+      return NavButton(
+        selected: sel,
+        selectedColor: const Color(0xC00A0E16),
+        onTap: () => go(key),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: text != null ? 16 : 12, vertical: 9),
+          child: text != null
+              ? Text(text, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: sel ? kAccent : Colors.white))
+              : Icon(icon, size: 22, color: sel ? kAccent : Colors.white),
         ),
       );
     }
@@ -386,16 +414,12 @@ class _ShellState extends State<Shell> implements RootNavigator {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Material(
-            color: Colors.transparent,
-            shape: const StadiumBorder(),
-            child: InkWell(
-              customBorder: const StadiumBorder(),
-              onTap: () => _setCollapsed(s, false),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                child: Icon(Icons.view_sidebar_outlined, size: 22, color: Colors.white),
-              ),
+          NavButton(
+            tooltip: 'Afficher le menu',
+            onTap: () => _setCollapsed(s, false),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              child: Icon(Icons.view_sidebar_outlined, size: 22, color: Colors.white),
             ),
           ),
           tab('home', text: 'Accueil'),

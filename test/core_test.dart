@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:iptv_player/core/playlist_import.dart';
 import 'package:iptv_player/core/countries.dart';
 import 'package:iptv_player/core/m3u.dart';
 import 'package:iptv_player/core/text.dart';
@@ -57,5 +61,34 @@ void main() {
     expect(prettyGroup('Films Français'), 'Films Français');
     expect(detectCountry(group: 'Deutschland'), 'DE');
     expect(norm('Été À Noël'), 'ete a noel');
+  });
+
+  test('import de fichier M3U', () async {
+    final bytes = utf8.encode(_sample);
+    expect(countEntries(bytes) > 3, true);
+    final dir = await Directory.systemTemp.createTemp('iptv');
+    final path = await savePlaylist(dir, 'abc', bytes);
+    expect(await File(path).readAsString(), _sample);
+    expect(() => savePlaylist(dir, 'bad', utf8.encode('<html>pas une liste</html>')), throwsFormatException);
+    final lan = LanImport();
+    try {
+      final addr = await lan.start();
+      final got = lan.files.first;
+      final c = HttpClient();
+      final rq = await c.postUrl(Uri.parse(addr.replaceFirst(RegExp(r'//[^:]+'), '//127.0.0.1') + '/upload'));
+      rq.headers.set('x-name', 'ma%20liste.m3u');
+      rq.add(bytes);
+      final rs = await rq.close();
+      expect(rs.statusCode, 200);
+      final (name, data) = await got.timeout(const Duration(seconds: 5));
+      expect(name, 'ma liste.m3u');
+      expect(data.length, bytes.length);
+      c.close();
+    } on SocketException {
+      // pas de réseau dans l'environnement de test : on ignore la partie serveur
+    } finally {
+      await lan.stop();
+    }
+    await dir.delete(recursive: true);
   });
 }
