@@ -4,6 +4,8 @@ Application IPTV conçue par **Asvind** : listes **M3U** et comptes **Xtream Cod
 chaînes classées par pays, fiches films / séries / acteurs, profils, reprise de lecture.
 Même design et mêmes fonctions que la version Windows.
 
+**Version Windows** : code dans le dossier [`windows/`](windows/) ; le zip d'installation prêt à l'emploi est joint à chaque [Release](https://github.com/As-vind/IPTV/releases/latest) (décompresser puis lancer `Installer.bat`).
+
 ## Télécharger
 Chaque modification publiée sur `main` est compilée automatiquement (onglet **Actions**)
 et publiée dans **Releases** :

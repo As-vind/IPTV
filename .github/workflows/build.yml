@@ -224,9 +224,37 @@ jobs:
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" $AUTH | tail -60
 
+  windows:
+    name: Windows (zip d'installation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vérification Python
+        run: python3 -m py_compile windows/*.py
+      - name: Paquet
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+        run: |
+          D="IPTV Player - Installation"
+          mkdir -p "build/$D" dist
+          cp windows/* "build/$D/"
+          if [ -n "$TMDB_KEY" ]; then
+            python3 - <<'PY'
+          import os
+          p = "build/IPTV Player - Installation/iptv_player.py"
+          s = open(p, encoding="utf-8").read().replace("__TMDB_KEY__", os.environ["TMDB_KEY"].strip(), 1)
+          open(p, "w", encoding="utf-8").write(s)
+          PY
+          fi
+          cd build && zip -qr "../dist/IPTV-Player-${APP_VERSION}.${{ github.run_number }}-Windows.zip" "$D"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+
   publication:
     name: Publication
-    needs: [android, ios, android-store, ios-store]
+    needs: [android, ios, android-store, ios-store, windows]
     if: always() && needs.android.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -243,6 +271,7 @@ jobs:
 
             - **Android / Android TV** : téléchargez le fichier `.apk` et ouvrez-le sur l'appareil
               (autorisez l'installation d'applications inconnues si demandé).
+            - **Windows** : téléchargez le `.zip`, décompressez-le puis double-cliquez sur `Installer.bat`.
             - **iPad / iPhone** : le fichier `.ipa` (s'il est présent) s'installe avec Sideloadly ou AltStore
               en le signant avec votre identifiant Apple.
           files: dist/*

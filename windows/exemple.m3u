@@ -1,0 +1,26 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="TF1.fr@SD" tvg-logo="" group-title="Général",TF1
+http://x/1.ts
+#EXTINF:-1 group-title="FR | SPORTS",RMC Sport 1 HD
+http://x/2.ts
+#EXTINF:-1 group-title="|BE| INFO",RTBF La Une
+http://x/3.ts
+#EXTINF:-1 group-title="AR | MBC",MBC 1
+http://x/4.ts
+#EXTINF:-1 tvg-country="ES" group-title="News",TVE 24h
+http://x/5.ts
+#EXTINF:-1 group-title="Italia",Rai 1
+#EXTVLCOPT:http-referrer=http://ref
+http://x/6.ts
+#EXTINF:-1 group-title="VOD FR", Inception (2010)
+http://x/movie/u/p/7.mkv
+#EXTINF:-1 group-title="Sport",beIN SPORTS 1
+http://x/8.ts
+#EXTINF:-1 group-title="UK: Entertainment",BBC One
+http://x/9.ts
+#EXTINF:-1 tvg-logo="" group-title="SÉRIES FR",Lupin S01 E01
+http://x/series/u/p/1.mkv
+#EXTINF:-1 tvg-logo="" group-title="SÉRIES FR",Lupin S01 E02
+http://x/series/u/p/2.mkv
+#EXTINF:-1 tvg-logo="" group-title="SÉRIES FR",Lupin S02 E01 Le retour
+http://x/series/u/p/3.mkv

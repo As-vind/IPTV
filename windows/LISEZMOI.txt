@@ -1,0 +1,83 @@
+IPTV Player 2.7 — conçu par Asvind
+===================================
+
+INSTALLATION
+1. Python 3 64 bits doit être installé (python.org, case « Add python.exe to PATH » cochée).
+2. Double-cliquez sur « Installer.bat ».
+   - La première fois, les modules Python (PySide6, python-vlc, pylnk3) s'installent dans la console.
+   - La fenêtre d'installation s'ouvre ensuite : cliquez sur « Installer ».
+3. Le moteur vidéo VLC est intégré au logiciel (dossier « vlc ») :
+   copié depuis votre VLC s'il est installé, sinon téléchargé depuis videolan.org.
+   Vous n'avez pas besoin d'installer VLC séparément.
+
+Emplacement par défaut : %LOCALAPPDATA%\Programs\IPTV Player (aucun droit administrateur requis).
+Raccourcis : Bureau et menu Démarrer.
+
+DÉSINSTALLATION
+Paramètres Windows > Applications > Applications installées > IPTV Player > Désinstaller,
+ou menu Démarrer > IPTV Player > Désinstaller IPTV Player.
+
+Vos sources, favoris et historique sont dans %APPDATA%\IPTVPlayer.
+
+NOUVEAUTÉS 2.7 — fichiers M3U et pilotage au clavier / à la télécommande
+- Ajouter une source : nouvel onglet « Fichier M3U ». Déposez le fichier dans le cadre (ou cliquez pour le choisir).
+  La liste est copiée dans l'application : elle reste disponible si le fichier d'origine est déplacé, et si vous
+  modifiez le fichier d'origine, la nouvelle version est reprise à la prochaine actualisation.
+- Vous pouvez aussi glisser un fichier .m3u / .m3u8 directement sur la fenêtre, ou faire clic droit sur le fichier
+  > Ouvrir avec > IPTV Player (l'application reste votre lecteur par défaut inchangé).
+- Paramètres > Sources : « Remplacer le fichier » pour mettre à jour une liste.
+- PC branché sur la TV : tout se pilote avec les flèches, Entrée et Retour arrière (clavier, télécommande PC,
+  manette). La case choisie est entourée de blanc ; ← depuis la première case ouvre le menu.
+- Une seule fenêtre à la fois : ouvrir un fichier M3U alors que l'application tourne l'ajoute à la fenêtre existante.
+
+NOUVEAUTÉS 2.6 — mêmes cases que l'appli OCTO+
+- Bannière : titre au milieu, affiché avec le logo officiel du film/de la série (TMDB) quand il existe.
+- Films / Séries : Reprendre, Top de la semaine, catégories, Nouveautés, En streaming sur (Netflix, Prime Video,
+  Disney+, Apple TV+, Max, Crunchyroll, Canal+, Paramount+), Les plus gros succès de l'année, Top du mois,
+  Coups de cœur (grandes affiches), studios (Disney, DreamWorks, DC, Pixar, Marvel, Star Wars), acteurs populaires.
+- Un clic sur une plateforme ou un studio affiche les titres de votre abonnement qui en font partie.
+
+NOUVEAUTÉS 2.5
+- Corrigé : au démarrage (menu replié), la barre du haut apparaissait en petit carré gris en haut à gauche.
+- Fiches TMDB plus fiables : nouvelles tentatives automatiques si TMDB ne répond pas, et actualisation
+  en arrière-plan une fois par jour (la fiche s'affiche tout de suite, la mise à jour se fait sans attendre).
+- Fiche acteur : bouton « Réessayer » si TMDB n'a pas répondu.
+- Mise à jour propre : l'installateur ferme l'application, retire l'ancienne version (fichiers, entrée
+  « Applications installées », anciens raccourcis) avant d'installer la nouvelle ; nouvelles icônes affichées tout de suite.
+- Désinstallation complète : raccourcis Bureau (y compris OneDrive), menu Démarrer, barre des tâches, dossier du
+  logiciel ; en option vos données et les films téléchargés.
+
+NOUVEAUTÉS 2.4
+- Corrigé : la barre flottante (menu replié) et le bouton « Retour » ne réagissaient pas aux clics sous Windows.
+- Vignettes et textes s'adaptent à la taille de l'écran (27", 49" ultra-large, petit écran).
+- Bannière : quand il n'y a qu'une affiche verticale, affiche et titre sont centrés ensemble.
+
+NOUVEAUTÉS 2.3
+- Bannière d'accueil qui défile (glisser à la souris, flèches, molette), images nettes, s'adapte à la taille de la fenêtre.
+- Bouton « ‹ Retour » toujours visible sur les fiches (et bouton « précédent » de la souris, Échap, Alt+←).
+- Téléchargements : « ⬇ Télécharger » sur la fiche d'un film, ⬇ sur chaque épisode ou « Télécharger la saison ».
+  Les fichiers vont dans Vidéos\IPTV Player (modifiable) et se lisent ensuite sans connexion (menu « Téléchargés »).
+  Un téléchargement à la fois, reprise automatique après coupure ou redémarrage.
+- Pré-chargement 1, 5 ou 10 minutes (Paramètres) : le film se télécharge en avance pendant la lecture ;
+  si ça rame, la lecture se met en pause le temps de remplir la réserve puis repart sans à-coups.
+  Mémoire tampon réglable aussi pour les chaînes TV (jusqu'à 30 s).
+- Clé TMDB intégrée : jaquettes, fonds et acteurs sans rien configurer.
+
+DESIGN (2.2)
+Menu à gauche (Accueil, Films, Séries, Chaînes TV, Ma liste, Recherche), bannière animée
+en haut de chaque page, rangées « Reprendre », « Top de la semaine », « Nouveautés »,
+catégories en tuiles et acteurs populaires tout en bas. Le bouton en haut du menu (ou Ctrl+B)
+le replie en barre flottante. « Modifier » ouvre les paramètres.
+Mise à jour depuis la 2.1 : relancez simplement Installer.bat, vos données sont conservées.
+
+PROFILS
+Au démarrage, « Qui regarde ? » : chaque profil a ses favoris (Ma liste), son historique
+et « Reprendre la lecture ». Profil enfant (masque les catégories adultes) et code PIN facultatifs.
+Profil en bas du menu de gauche : changer de profil, gérer les profils.
+
+FICHES ACTEURS / FONDS / BANDES-ANNONCES
+Dans Paramètres, collez une clé API TMDB gratuite (themoviedb.org > Paramètres > API).
+
+RACCOURCIS CLAVIER (lecteur)
+Espace : pause · F / F11 : plein écran · Échap : quitter le plein écran / retour
+← / → : -10 s / +30 s · ↑ / ↓ : chaîne précédente / suivante (TV) ou volume · N : épisode suivant
