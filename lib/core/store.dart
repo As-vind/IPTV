@@ -21,7 +21,10 @@ const String kAppTitle = 'IPTV Player';
 const String kAppVersion = '2.6';
 
 /// Clé TMDB fournie à la compilation (secret GitHub TMDB_KEY) : jamais écrite dans le code public.
-const String kTmdbBuiltin = String.fromEnvironment('TMDB_KEY');
+const String _kTmdbDefault =
+    'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIyOWY2NWExMTI1MjcyNzVmYTU2OGMyODcyYmRhZmMzYSIsIm5iZiI6MTc0MzI3NDQ5OC43NjE5OTk4LCJzdWIiOiI2N2U4NDIwMjhmMzAzZDJmOTVkZGIyZDciLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.3SJ9Hu2wA19lIcXGCFlknP_K68OSZztLZFC7zrDBrNY';
+const String _kTmdbEnv = String.fromEnvironment('TMDB_KEY');
+const String kTmdbBuiltin = _kTmdbEnv == '' ? _kTmdbDefault : _kTmdbEnv;
 
 /// Version « stores » (App Store / Google Play) : sans logos ni marques de plateformes tierces.
 const bool kStoreBuild = bool.fromEnvironment('STORE');
