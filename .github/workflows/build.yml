@@ -237,7 +237,7 @@ jobs:
         run: |
           D="IPTV Player - Installation"
           mkdir -p "build/$D" dist
-          cp windows/* "build/$D/"
+          find windows -maxdepth 1 -type f ! -name "*.pyc" -exec cp -t "build/$D/" {} +
           if [ -n "$TMDB_KEY" ]; then
             python3 - <<'PY'
           import os
