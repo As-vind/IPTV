@@ -20,8 +20,8 @@ import 'xtream.dart';
 const String kAppTitle = 'IPTV Player';
 const String kAppVersion = '2.7';
 
-/// Aucune clé TMDB intégrée (clé factice) : chaque utilisateur saisit la sienne dans Paramètres.
-const String kTmdbBuiltin = '';
+/// Clé TMDB fournie à la compilation (secret GitHub TMDB_KEY) : jamais écrite dans le code public.
+const String kTmdbBuiltin = String.fromEnvironment('TMDB_KEY');
 
 /// Version « stores » (App Store / Google Play) : sans logos ni marques de plateformes tierces.
 const bool kStoreBuild = bool.fromEnvironment('STORE');

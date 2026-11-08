@@ -14,9 +14,8 @@ Deux versions sont compilées :
 ---
 
 ## 0. Clé TMDB (jaquettes, fonds, acteurs)
-Aucune clé n'est intégrée aux applications publiées (clé factice). Chaque utilisateur colle sa propre clé TMDB
-(gratuite sur https://www.themoviedb.org/settings/api) dans **Paramètres → Clé TMDB**.
-Ne pas créer de secret `TMDB_KEY` : il ne serait de toute façon pas utilisé.
+Secret **`TMDB_KEY`** = votre jeton TMDB (v4 « Read Access Token » ou clé v3).
+Le dépôt étant public, la clé n'est jamais écrite dans le code : elle est injectée à la compilation.
 
 ---
 
