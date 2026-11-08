@@ -61,13 +61,13 @@ jobs:
       - name: Compiler l'APK
         run: |
           set +e
-          flutter build apk --release --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          flutter build apk --release --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.10 --build-number=10 > build.txt 2>&1
           code=$?
           tail -120 build.txt
           grep -E "error:|Error:|FAILURE|What went wrong" -A3 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done
           exit $code
       - name: Renommer
-        run: cp build/app/outputs/flutter-apk/app-release.apk "IPTV-Player-${APP_VERSION}.${{ github.run_number }}.apk"
+        run: cp build/app/outputs/flutter-apk/app-release.apk "IPTV-Player-${APP_VERSION}.10.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
@@ -91,7 +91,7 @@ jobs:
       - name: Compiler
         run: |
           set +e
-          flutter build ios --release --no-codesign --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          flutter build ios --release --no-codesign --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.10 --build-number=10 > build.txt 2>&1
           code=$?
           tail -120 build.txt
           grep -E "error:|Error:|Failed" -A2 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done
@@ -100,7 +100,7 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/ios/iphoneos/Runner.app Payload/
-          zip -qry "IPTV-Player-${APP_VERSION}.${{ github.run_number }}.ipa" Payload
+          zip -qry "IPTV-Player-${APP_VERSION}.10.ipa" Payload
       - uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
@@ -144,14 +144,14 @@ jobs:
         if: steps.chk.outputs.ok == 'true'
         run: |
           set +e
-          flutter build appbundle --release --dart-define=STORE=true --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }} > build.txt 2>&1
+          flutter build appbundle --release --dart-define=STORE=true --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.10 --build-number=10 > build.txt 2>&1
           code=$?
           tail -80 build.txt
           grep -E "error:|Error:|FAILURE|What went wrong" -A3 build.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done
           exit $code
       - name: Renommer
         if: steps.chk.outputs.ok == 'true'
-        run: cp build/app/outputs/bundle/release/app-release.aab "IPTV-Player-${APP_VERSION}.${{ github.run_number }}-google-play.aab"
+        run: cp build/app/outputs/bundle/release/app-release.aab "IPTV-Player-${APP_VERSION}.10-google-play.aab"
       - uses: actions/upload-artifact@v4
         if: steps.chk.outputs.ok == 'true'
         with:
@@ -200,7 +200,7 @@ jobs:
       - name: Compiler (version stores)
         if: steps.chk.outputs.ok == 'true'
         run: |
-          flutter build ios --release --no-codesign --dart-define=STORE=true --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.${{ github.run_number }} --build-number=${{ github.run_number }}
+          flutter build ios --release --no-codesign --dart-define=STORE=true --dart-define=TMDB_KEY=${{ secrets.TMDB_KEY }} --build-name=${APP_VERSION}.10 --build-number=10
       - name: Archiver, signer et envoyer sur App Store Connect
         if: steps.chk.outputs.ok == 'true'
         run: |
@@ -246,7 +246,7 @@ jobs:
           open(p, "w", encoding="utf-8").write(s)
           PY
           fi
-          cd build && zip -qr "../dist/IPTV-Player-${APP_VERSION}.${{ github.run_number }}-Windows.zip" "$D"
+          cd build && zip -qr "../dist/IPTV-Player-${APP_VERSION}.10-Windows.zip" "$D"
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -264,8 +264,8 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.APP_VERSION }}.${{ github.run_number }}
-          name: IPTV Player ${{ env.APP_VERSION }}.${{ github.run_number }}
+          tag_name: v${{ env.APP_VERSION }}.10
+          name: IPTV Player ${{ env.APP_VERSION }}.10
           body: |
             **IPTV Player** — conçu par Asvind.
 
@@ -275,4 +275,4 @@ jobs:
             - **iPad / iPhone** : le fichier `.ipa` (s'il est présent) s'installe avec Sideloadly ou AltStore
               en le signant avec votre identifiant Apple.
           files: dist/*
-          make_latest: true
+          make_latest: false
