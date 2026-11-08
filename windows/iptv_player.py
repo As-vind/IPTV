@@ -64,9 +64,8 @@ USER_AGENT = "VLC/3.0.21 LibVLC/3.0.21"
 TMDB_API = os.environ.get("IPTV_TMDB_API", "https://api.themoviedb.org/3")
 TMDB_IMG = os.environ.get("IPTV_TMDB_IMG", "https://image.tmdb.org/t/p/")
 # Clé TMDB intégrée (jaquettes, fonds, acteurs) : utilisée si aucune clé n'est saisie dans Paramètres.
-TMDB_BUILTIN_KEY = "__TMDB_KEY__"   # remplacée à la compilation par le secret GitHub TMDB_KEY
-if TMDB_BUILTIN_KEY.startswith("__"):
-    TMDB_BUILTIN_KEY = os.environ.get("IPTV_TMDB_KEY", "")
+TMDB_BUILTIN_KEY = (
+    "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIyOWY2NWExMTI1MjcyNzVmYTU2OGMyODcyYmRhZmMzYSIsIm5iZiI6MTc0MzI3NDQ5OC43NjE5OTk4LCJzdWIiOiI2N2U4NDIwMjhmMzAzZDJmOTVkZGIyZDciLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.3SJ9Hu2wA19lIcXGCFlknP_K68OSZztLZFC7zrDBrNY")
 _TMDB_SIZE_RE = re.compile(r"(/t/p/)(w\d+|original|h\d+)(/)")
 
 
