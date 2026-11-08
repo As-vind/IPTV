@@ -247,16 +247,18 @@ class AppState extends ChangeNotifier {
         (its, info) = await XtreamClient.of(src).loadAll();
       } else {
         final loc = '${src['url']}'.trim();
-        String text;
         if (RegExp(r'^https?://', caseSensitive: false).hasMatch(loc)) {
-          text = await getText(loc, timeout: const Duration(seconds: 120));
+          final text = await getText(loc, timeout: const Duration(seconds: 120));
+          if (!RegExp('#EXTINF', caseSensitive: false).hasMatch(text)) {
+            throw Exception("Le contenu reçu n'est pas une liste M3U valide.");
+          }
+          its = await compute(parseM3u, text);
         } else {
-          text = decodeBody(await File(loc.replaceFirst('file://', '')).readAsBytes());
+          // fichier local : lecture, décodage et analyse hors de l'écran principal
+          final f = File(loc.replaceFirst('file://', ''));
+          if (!await f.exists()) throw Exception('Fichier introuvable : ${f.path}');
+          its = await compute(_parseM3uFile, f.path);
         }
-        if (!text.toUpperCase().contains('#EXTINF')) {
-          throw Exception("Le contenu reçu n'est pas une liste M3U valide.");
-        }
-        its = await compute(parseM3u, text);
         info = '';
       }
       final now = DateTime.now();
@@ -680,4 +682,13 @@ class AppState extends ChangeNotifier {
     final r = Random();
     return List.generate(12, (_) => '0123456789abcdef'[r.nextInt(16)]).join();
   }
+}
+
+/// Lit et analyse un fichier M3U (exécuté dans un isolat séparé).
+List<Item> _parseM3uFile(String path) {
+  final text = decodeBody(File(path).readAsBytesSync());
+  if (!RegExp('#EXTINF', caseSensitive: false).hasMatch(text)) {
+    throw Exception("Le fichier n'est pas une liste M3U valide.");
+  }
+  return parseM3u(text);
 }

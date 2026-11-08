@@ -7967,7 +7967,35 @@ def app_icon():
     return QtGui.QIcon(pm)
 
 
+def _install_crash_log():
+    """Toute erreur (même un plantage brutal) est écrite dans %APPDATA%\\IPTVPlayer\\crash.log."""
+    import traceback
+    import faulthandler
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        path = os.path.join(DATA_DIR, "crash.log")
+        if os.path.isfile(path) and os.path.getsize(path) > 2_000_000:
+            os.replace(path, path + ".old")
+        f = open(path, "a", encoding="utf-8", buffering=1)
+        f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')}  IPTV Player {APP_VERSION} =====\n")
+        faulthandler.enable(file=f, all_threads=True)
+    except Exception:
+        return
+
+    def hook(t, v, tb):
+        try:
+            f.write("".join(traceback.format_exception(t, v, tb)))
+        except Exception:
+            pass
+
+    sys.excepthook = hook
+    threading.excepthook = lambda a: hook(a.exc_type, a.exc_value, a.exc_traceback)
+    if sys.stderr is None:          # pythonw : pas de console, les messages vont dans le journal
+        sys.stderr = f
+
+
 def main():
+    _install_crash_log()
     if sys.platform.startswith("win"):
         try:
             import ctypes

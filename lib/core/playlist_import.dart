@@ -3,14 +3,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
-import 'net.dart';
+import 'package:flutter/foundation.dart' show compute;
 
 /// Vérifie le contenu et copie la liste dans le dossier de l'application.
 /// Renvoie le chemin de la copie (la source reste lisible même si l'original est déplacé ou supprimé).
 Future<String> savePlaylist(Directory dataDir, String id, List<int> bytes) async {
-  final text = decodeBody(bytes);
-  if (!text.toUpperCase().contains('#EXTINF')) {
+  if (await countEntriesAsync(bytes) == 0) {
     throw const FormatException("Ce fichier n'est pas une liste M3U (aucune ligne #EXTINF).");
   }
   final dir = Directory('${dataDir.path}/playlists');
@@ -21,8 +21,29 @@ Future<String> savePlaylist(Directory dataDir, String id, List<int> bytes) async
 }
 
 /// Nombre d'entrées d'une liste (pour l'aperçu avant ajout).
-int countEntries(List<int> bytes) =>
-    RegExp(r'^#EXTINF', multiLine: true, caseSensitive: false).allMatches(decodeBody(bytes)).length;
+/// Compte les #EXTINF directement dans les octets (sans créer de copie texte : sûr pour les très grosses listes).
+int countEntries(List<int> bytes) {
+  const pat = [35, 69, 88, 84, 73, 78, 70]; // "#EXTINF"
+  var n = 0;
+  final len = bytes.length - pat.length;
+  for (var i = 0; i <= len; i++) {
+    if (bytes[i] != 35) continue;
+    var ok = true;
+    for (var j = 1; j < pat.length; j++) {
+      final c = bytes[i + j] & 0xDF; // majuscule
+      if (c != pat[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) n++;
+  }
+  return n;
+}
+
+/// Même chose, hors de l'écran principal (pas de blocage « L'application ne répond pas »).
+Future<int> countEntriesAsync(List<int> bytes) =>
+    bytes.length < 2000000 ? Future.value(countEntries(bytes)) : compute(countEntries, bytes);
 
 /// Petit serveur web local : affiche une page où l'on dépose le fichier depuis un navigateur.
 class LanImport {
@@ -56,13 +77,14 @@ class LanImport {
     final res = req.response;
     try {
       if (req.method == 'POST' && req.uri.path == '/upload') {
-        final data = <int>[];
+        final b = BytesBuilder(copy: false);
         await for (final chunk in req) {
-          data.addAll(chunk);
-          if (data.length > 80 * 1024 * 1024) throw const FormatException('Fichier trop volumineux (80 Mo max).');
+          b.add(chunk);
+          if (b.length > 150 * 1024 * 1024) throw const FormatException('Fichier trop volumineux (150 Mo max).');
         }
+        final Uint8List data = b.takeBytes();
         final name = Uri.decodeComponent(req.headers.value('x-name') ?? 'liste.m3u');
-        if (!decodeBody(data).toUpperCase().contains('#EXTINF')) {
+        if (await countEntriesAsync(data) == 0) {
           res.statusCode = 422;
           res.write("Ce fichier n'est pas une liste M3U (aucune ligne #EXTINF).");
         } else {

@@ -63,8 +63,11 @@ class _SourceDialogState extends State<_SourceDialog> {
     super.dispose();
   }
 
-  void _gotFile(String name, List<int> bytes) {
-    final n = countEntries(bytes);
+  Future<void> _gotFile(String name, List<int> bytes) async {
+    setState(() => _busy = true);
+    final n = await countEntriesAsync(bytes);
+    if (!mounted) return;
+    setState(() => _busy = false);
     if (n == 0) {
       setState(() => _err = "« $name » n'est pas une liste M3U (aucune ligne #EXTINF).");
       return;
@@ -81,14 +84,17 @@ class _SourceDialogState extends State<_SourceDialog> {
   Future<void> _pick() async {
     setState(() => _err = null);
     try {
-      final r = await FilePicker.platform.pickFiles(type: FileType.any, withData: true, allowMultiple: false);
+      // withData: false — le fichier est lu directement depuis le disque (pas de copie géante en mémoire)
+      final r = await FilePicker.platform.pickFiles(type: FileType.any, withData: false, allowMultiple: false);
       if (r == null || r.files.isEmpty) return;
       final f = r.files.single;
-      final bytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
+      setState(() => _busy = true);
+      final bytes = f.path != null ? await File(f.path!).readAsBytes() : f.bytes;
       if (bytes == null) throw Exception('fichier illisible');
-      _gotFile(f.name, bytes);
+      await _gotFile(f.name, bytes);
     } catch (e) {
       if (mounted) {
+        setState(() => _busy = false);
         setState(() => _err = "Impossible d'ouvrir le sélecteur de fichiers sur cet appareil ($e).\n"
             'Utilisez plutôt « Envoyer depuis un autre appareil ».');
       }
@@ -224,6 +230,11 @@ class _SourceDialogState extends State<_SourceDialog> {
               Text(_bytes == null ? 'puis choisissez le fichier. En attente…' : 'Fichier reçu ✓',
                   style: const TextStyle(color: kMuted, fontSize: 13)),
             ]),
+          ),
+        if (_busy)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 10),
+            child: LinearProgressIndicator(minHeight: 3, color: kAccent, backgroundColor: Colors.white12),
           ),
         if (_bytes != null)
           Row(children: [
