@@ -34,6 +34,8 @@ open(fix, "w", encoding="utf-8").write("""subprojects { p ->
         }
     }
     if (p.state.executed) { fix() } else { p.afterEvaluate { fix() } }
+    // vérification « lint » facultative : elle plante sur les nouveaux serveurs de compilation
+    p.tasks.matching { it.name.startsWith('lintVital') }.configureEach { enabled = false }
 }
 """)
 for rname in ("android/build.gradle.kts", "android/build.gradle"):
