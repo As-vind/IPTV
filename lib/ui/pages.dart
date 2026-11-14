@@ -547,11 +547,20 @@ class _Loading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
+    // Tant que la liste n'est pas prête : logo + chargement (jamais un écran vide qui fait croire à un plantage).
+    final busy = s.loading || (!s.ready && s.sources.isNotEmpty && s.error == null);
     return Center(
-      child: s.loading
-          ? const Column(mainAxisSize: MainAxisSize.min, children: [
-              CircularProgressIndicator(color: kAccent), SizedBox(height: 14), Text('Chargement de votre liste…')])
-          : const Text('Aucun contenu pour le moment.', style: TextStyle(color: kMuted)),
+      child: busy
+          ? Column(mainAxisSize: MainAxisSize.min, children: [
+              const Logo(height: 56),
+              const SizedBox(height: 26),
+              const SizedBox(width: 34, height: 34, child: CircularProgressIndicator(color: kAccent, strokeWidth: 3)),
+              const SizedBox(height: 16),
+              Text('Chargement de « ${s.currentSource?['name'] ?? 'votre liste'} »…',
+                  textAlign: TextAlign.center, style: const TextStyle(color: kMuted, fontSize: 15)),
+            ])
+          : Text(s.error ?? 'Aucun contenu pour le moment.',
+              textAlign: TextAlign.center, style: const TextStyle(color: kMuted)),
     );
   }
 }

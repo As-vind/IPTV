@@ -41,6 +41,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _playing = false;
   bool _buffering = true;
   String _error = '';
+  Duration _errAt = Duration.zero;
+  Timer? _errT;
   String _epg = '';
   double? _dragValue;
   bool _endedHandled = false;
@@ -53,12 +55,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _subs.addAll([
-      _player.stream.position.listen((p) => setState(() => _pos = p)),
+      _player.stream.position.listen((p) {
+        // la vidéo avance : un message d'erreur éventuel n'était qu'un avertissement
+        if (_error.isNotEmpty && p > _errAt + const Duration(milliseconds: 800)) _error = '';
+        setState(() => _pos = p);
+      }),
       _player.stream.duration.listen((d) => setState(() => _dur = d)),
       _player.stream.buffer.listen((b) => _buf = b),
       _player.stream.playing.listen((p) => setState(() => _playing = p)),
       _player.stream.buffering.listen((b) => setState(() => _buffering = b)),
-      _player.stream.error.listen((e) => setState(() => _error = e)),
+      _player.stream.error.listen(_onError),
       _player.stream.completed.listen((c) {
         if (c) _onEnded();
       }),
@@ -66,6 +72,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _saveT = Timer.periodic(const Duration(seconds: 5), (_) => _saveProgress());
     _open(_index, resume: widget.resume);
     _poke();
+  }
+
+  /// mpv signale aussi de simples avertissements (ex. « force-seekable » sur une chaîne en direct) alors que
+  /// la vidéo tourne : on n'affiche l'erreur que si la lecture n'avance plus 4 secondes après.
+  void _onError(String e) {
+    if (e.trim().isEmpty || e.contains('force-seekable') || e.toLowerCase().contains('seek')) return;
+    final at = _pos;
+    _errT?.cancel();
+    _errT = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      final stuck = _pos <= at + const Duration(milliseconds: 500);
+      if (stuck) {
+        setState(() {
+          _errAt = _pos;
+          _error = e;
+        });
+      }
+    });
   }
 
   Map<String, String> _headers(PlayItem it) {
@@ -85,6 +109,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _saveProgress();
     setState(() {
       _index = i;
+      _errT?.cancel();
       _error = '';
       _epg = '';
       _pos = Duration.zero;
@@ -134,6 +159,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
       await set('cache', 'yes');
+      // autorise l'avance / le retour dans la mémoire tampon, même sur les flux qui ne le déclarent pas
+      await set('force-seekable', 'yes');
       if (_live) {
         final secs = _s.liveCacheSecs;
         await set('cache-on-disk', 'no');
@@ -302,6 +329,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _saveProgress();
     _hideT?.cancel();
     _saveT?.cancel();
+    _errT?.cancel();
     for (final s in _subs) {
       s.cancel();
     }

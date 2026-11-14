@@ -34,13 +34,15 @@ const List<int> kAvatarColors = [0xFFE8252C, 0xFF1A5FD8, 0xFFF6A600, 0xFF0E9A48,
 const List<String> kAvatarEmojis = ['', '🦤', '🦁', '🐯', '🦊', '🐼', '🐸', '🐙', '🦄', '🐬', '🚀', '⚽', '🎮', '🎬', '🎧', '⭐'];
 
 // ---------------------------------------------------------------- isolats
-List<Item> _decodeItems(String s) {
-  final d = jsonDecode(s);
-  final list = (d is Map ? d['items'] : d) as List? ?? const [];
-  return list.whereType<Map>().map((e) => Item.fromJson(Map<String, dynamic>.from(e))).toList();
-}
-
 String _encodeCache(Map<String, dynamic> m) => jsonEncode(m);
+
+/// Lecture du cache d'une source entièrement hors de l'écran principal (lecture + décodage en une fois).
+(List<Item>, String) _loadCache(String path) {
+  final d = jsonDecode(File(path).readAsStringSync());
+  final list = (d is Map ? d['items'] : d) as List? ?? const [];
+  final its = list.whereType<Map>().map((e) => Item.fromJson(Map<String, dynamic>.from(e))).toList();
+  return (its, d is Map ? '${d['info'] ?? ''}' : '');
+}
 
 class CatTile {
   final String kind;
@@ -78,6 +80,9 @@ class AppState extends ChangeNotifier {
   final Map<String, Set<String>> _actorIndex = {};
   String sourceInfo = '';
   bool loading = false;
+
+  /// Vrai dès que la liste de la source courante a été chargée au moins une fois (cache ou réseau).
+  bool ready = false;
   String? error;
   int libVersion = 0;
 
@@ -227,12 +232,14 @@ class AppState extends ChangeNotifier {
     error = null;
     final f = File(_cachePath(sid));
     if (!force && await f.exists()) {
+      // l'écran affiche « Chargement… » pendant la lecture du cache (jamais un écran vide)
+      loading = true;
+      notifyListeners();
       try {
-        final txt = await f.readAsString();
-        final its = await compute(_decodeItems, txt);
-        final d = jsonDecode(txt.length < 2000000 ? txt : '{}');
-        final info = d is Map ? '${d['info'] ?? ''}' : '';
+        final (its, info) = await compute(_loadCache, f.path);
         _applyLibrary(its, info);
+        loading = false;
+        ready = true;
         notifyListeners();
         return;
       } catch (_) {}
@@ -271,6 +278,7 @@ class AppState extends ChangeNotifier {
       error = 'Impossible de charger « ${src['name']} » : $e';
     } finally {
       loading = false;
+      ready = true;
       notifyListeners();
     }
   }
