@@ -42,6 +42,8 @@ from datetime import datetime
 
 from PySide6 import QtCore, QtGui, QtWidgets, QtNetwork
 
+import iptv_plus as XP
+
 Qt = QtCore.Qt
 
 # --------------------------------------------------------------------------- #
@@ -294,6 +296,9 @@ def clean_title(name):
     s = re.sub(r"[\[\(]\s*[\]\)]", "", s)
     s = re.sub(r"\s{2,}", " ", s).strip(" -|:._–")
     return (s or (name or "").strip()), year
+
+
+XP.setup(strip_lead_tags=strip_lead_tags, detect_country=detect_country)
 
 
 def fmt_ms(ms):
@@ -600,7 +605,11 @@ def fetch_source(src):
         if "#EXTINF" not in text.upper():
             raise RuntimeError("Le contenu reçu n'est pas une liste M3U valide.")
         items, info = parse_m3u(text), ""
-    return {"items": items, "info": info, "updated": time.strftime("%d/%m/%Y %H:%M")}
+        m = re.search(r'(?:url-tvg|x-tvg-url)\s*=\s*"([^"]+)"', text[:4000], re.I)
+        if m:
+            return {"items": items, "info": info, "updated": time.strftime("%d/%m/%Y %H:%M"),
+                    "updated_ts": int(time.time()), "epg_url": m.group(1).split(",")[0].strip()}
+    return {"items": items, "info": info, "updated": time.strftime("%d/%m/%Y %H:%M"), "updated_ts": int(time.time())}
 
 
 # --------------------------------------------------------------------------- #
@@ -1078,6 +1087,7 @@ def load_config():
         d.setdefault("favorites", [])
         d.setdefault("progress", {})
         d.setdefault("live_hist", {})
+    XP.ensure_settings(cfg)
     return cfg
 
 
@@ -3098,7 +3108,7 @@ class RichPage(ScrollPage):
                    on_click=lambda it, l=cards: self.win.play_items([x["_lib"] for x in l], l.index(it)))
         box.addWidget(row)
         for d in cards[:14]:
-            if d["_lib"].get("stream_id"):
+            if self.win.has_epg(d["_lib"]):
                 self.win.fetch_epg(d["_lib"], lambda _it, progs, d=d, row=row: self._epg(row, d, progs))
         return row
 
@@ -3469,7 +3479,7 @@ class LivePage(RichPage):
         self._upcoming = []
         self._pending = 0
         for c in chans[:18]:
-            if c.get("stream_id"):
+            if win.has_epg(c):
                 self._pending += 1
                 win.fetch_epg(c, self._got_upcoming)
         shortcuts = [
@@ -4912,6 +4922,7 @@ class SettingsPage(ScrollPage):
         row.addWidget(button("✓ Utiliser", "secondary", self._use))
         row.addWidget(button("⟳ Actualiser", "secondary", self._refresh))
         row.addWidget(button("📄 Remplacer le fichier", "secondary", self._replace_file))
+        row.addWidget(button("📺 Guide TV…", "secondary", self._set_epg))
         row.addWidget(button("🗑 Supprimer", "secondary", self._delete))
         row.addStretch(1)
         box.addLayout(row)
@@ -4962,14 +4973,6 @@ class SettingsPage(ScrollPage):
         self.buf.setCurrentIndex(max(0, self.buf.findData(int(win.cfg.get("buffer_min", 0) or 0))))
         self.buf.currentIndexChanged.connect(self._set_buf)
         brow.addWidget(self.buf)
-        brow.addSpacing(24)
-        brow.addWidget(label("Mémoire tampon des chaînes TV :", "meta"))
-        self.lcache = QtWidgets.QComboBox()
-        for v, t in ((2500, "2,5 s (standard)"), (5000, "5 s"), (10000, "10 s"), (20000, "20 s"), (30000, "30 s")):
-            self.lcache.addItem(t, v)
-        self.lcache.setCurrentIndex(max(0, self.lcache.findData(int(win.cfg.get("live_cache", 2500)))))
-        self.lcache.currentIndexChanged.connect(self._set_lcache)
-        brow.addWidget(self.lcache)
         brow.addStretch(1)
         box.addLayout(brow)
         drow = QtWidgets.QHBoxLayout()
@@ -4979,6 +4982,33 @@ class SettingsPage(ScrollPage):
         drow.addWidget(button("Voir les téléchargements", "secondary", lambda: win.go_root("downloads")))
         drow.addStretch(1)
         box.addLayout(drow)
+
+        self.form = SettingsForm(win)
+        box.addWidget(self.form)
+
+        box.addSpacing(10)
+        box.addWidget(label("Administration depuis un navigateur", "rowtitle"))
+        self.admin_box = AdminPanel(win)
+        box.addWidget(self.admin_box)
+
+        box.addSpacing(10)
+        box.addWidget(label("Maintenance", "rowtitle"))
+        mrow = QtWidgets.QHBoxLayout()
+        mrow.addWidget(button("⟳ Actualiser toutes les listes", "secondary", win.maint.refresh_all))
+        mrow.addWidget(button("🩺 Vérifier mes chaînes favorites", "secondary", win.maint.check_favorites))
+        mrow.addWidget(button("🧹 Nettoyer le cache", "secondary", lambda: win.maint.clean(now=True)))
+        mrow.addStretch(1)
+        box.addLayout(mrow)
+        mrow2 = QtWidgets.QHBoxLayout()
+        mrow2.addWidget(button("💾 Sauvegarder la configuration…", "secondary", win.maint.export_config))
+        mrow2.addWidget(button("📂 Restaurer…", "secondary", win.maint.import_config))
+        mrow2.addWidget(button("↺ Réglages par défaut", "secondary", self._reset_defaults))
+        mrow2.addStretch(1)
+        box.addLayout(mrow2)
+        self.hw_l = label(f"Appareil : {win.cores} cœurs, {win.ram_mb / 1024:.1f} Go de mémoire — niveau "
+                          f"{ {'low': 'économique', 'mid': 'standard', 'high': 'puissant'}[win.hw_tier] } "
+                          "(qualité et mémoire tampon adaptées automatiquement)", "meta", wrap=True)
+        box.addWidget(self.hw_l)
 
         box.addSpacing(10)
         box.addWidget(label("Stockage", "rowtitle"))
@@ -4998,9 +5028,16 @@ class SettingsPage(ScrollPage):
         self.win.cfg["buffer_min"] = int(self.buf.currentData())
         self.win.save()
 
-    def _set_lcache(self):
-        self.win.cfg["live_cache"] = int(self.lcache.currentData())
-        self.win.save()
+    def _reset_defaults(self):
+        r = QtWidgets.QMessageBox.question(self, APP_TITLE, "Remettre tous les réglages de lecture, image, son et "
+                                           "qualité à leurs valeurs par défaut ?\n(Vos listes, profils et favoris "
+                                           "sont conservés.)")
+        if r == QtWidgets.QMessageBox.StandardButton.Yes:
+            XP.reset_settings(self.win.cfg)
+            self.win.save()
+            self.form.sync()
+            self.win._apply_library(*self.win._raw)
+            self.win.toast("Réglages par défaut rétablis.")
 
     def _change_dl_dir(self):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Dossier des téléchargements", self.win.downloads.folder())
@@ -5010,6 +5047,8 @@ class SettingsPage(ScrollPage):
             self.rebuild()
 
     def rebuild(self):
+        self.form.sync()
+        self.admin_box.refresh()
         self.dl_dir.setText(f"Dossier des téléchargements : {self.win.downloads.folder()}")
         self.sources.clear()
         for s in self.win.cfg["sources"]:
@@ -5047,6 +5086,29 @@ class SettingsPage(ScrollPage):
         if self._sel():
             self.win.delete_source(self._sel())
             self.rebuild()
+
+    def _set_epg(self):
+        sid = self._sel() or (self.win.current_source or {}).get("id")
+        src = self.win._source_by_id(sid) if sid else None
+        if not src:
+            return
+        cur = src.get("epg") or src.get("epg_auto") or ""
+        url, ok = QtWidgets.QInputDialog.getText(
+            self, "Guide TV (XMLTV)", f"Adresse du guide TV de « {src['name']} » (fichier XMLTV, .xml ou .xml.gz).\n"
+            "Laissez vide pour utiliser celui de la liste ou du compte Xtream.", text=src.get("epg") or "")
+        if not ok:
+            return
+        url = url.strip()
+        if url and not re.match(r"^https?://", url, re.I):
+            QtWidgets.QMessageBox.warning(self, APP_TITLE, "L'adresse doit commencer par http:// ou https://")
+            return
+        src["epg"] = url
+        if not url:
+            src.pop("epg", None)
+        self.win.guides.pop(src["id"], None)
+        self.win.save()
+        if url or cur:
+            self.win.load_guide(src, lambda: self.win.toast("Guide TV chargé ✓"), force=True)
 
     def _save_key(self):
         key = self.key.text().strip()
@@ -5091,6 +5153,594 @@ class SettingsPage(ScrollPage):
         self.win.toast("Historique de lecture effacé.")
 
 
+class SettingsForm(QtWidgets.QWidget):
+    """Tous les réglages avancés (lecture, chaînes, vidéo, audio, maintenance), générés depuis XP.SETTINGS."""
+
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+        self.w = {}
+        self._loading = False
+        v = QtWidgets.QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(8)
+        sections = {}
+        for sec, key, lab, typ, _default, extra in XP.SETTINGS:
+            if sec not in sections:
+                v.addSpacing(10)
+                v.addWidget(label({"Lecture": "Lecture et anti-coupure", "Chaînes": "Chaînes et qualité",
+                                   "Vidéo": "Vidéo", "Audio": "Audio et sous-titres",
+                                   "Maintenance": "Entretien automatique"}.get(sec, sec), "rowtitle"))
+                if sec == "Lecture":
+                    v.addWidget(label("AUTO adapte la mémoire tampon après chaque coupure et la réduit quand tout est "
+                                      "stable. Performance : zapping le plus rapide. Anti-freeze : continuité avant "
+                                      "tout. Personnalisé : les valeurs ci-dessous.", "overview", wrap=True))
+                g = QtWidgets.QGridLayout()
+                g.setHorizontalSpacing(18)
+                g.setVerticalSpacing(8)
+                g.setColumnStretch(1, 1)
+                v.addLayout(g)
+                sections[sec] = g
+            g = sections[sec]
+            r = g.rowCount()
+            if typ == "bool":
+                w = QtWidgets.QCheckBox(lab)
+                w.toggled.connect(lambda val, k=key: self._set(k, val))
+                g.addWidget(w, r, 0, 1, 2)
+            else:
+                if typ == "choice":
+                    w = QtWidgets.QComboBox()
+                    for code, text in extra:
+                        w.addItem(text, code)
+                    w.currentIndexChanged.connect(lambda _i, k=key, c=w: self._set(k, c.currentData()))
+                elif typ == "float":
+                    w = QtWidgets.QDoubleSpinBox()
+                    w.setRange(*extra)
+                    w.setSingleStep(0.5)
+                    w.setDecimals(1)
+                    w.valueChanged.connect(lambda val, k=key: self._set(k, val))
+                elif key in ("brightness", "contrast", "saturation", "sharpness"):
+                    w = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+                    w.setRange(*extra)
+                    w.setMaximumWidth(320)
+                    w.valueChanged.connect(lambda val, k=key: self._set(k, val))
+                else:
+                    w = QtWidgets.QSpinBox()
+                    w.setRange(*extra)
+                    w.valueChanged.connect(lambda val, k=key: self._set(k, val))
+                g.addWidget(label(lab, "meta"), r, 0)
+                g.addWidget(w, r, 1, Qt.AlignmentFlag.AlignLeft)
+            if key == "passthrough":
+                w.setEnabled(False)
+                w.setToolTip("Disponible sur Android TV (sortie HDMI vers un ampli).")
+            if key == "refresh" and not XP.DisplayRate.supported():
+                w.setEnabled(False)
+            self.w[key] = w
+        self.sync()
+
+    def sync(self):
+        self._loading = True
+        p = self.win.pset
+        for k, w in self.w.items():
+            val = p.get(k, XP.SETTING_KEYS[k][4])
+            if isinstance(w, QtWidgets.QCheckBox):
+                w.setChecked(bool(val))
+            elif isinstance(w, QtWidgets.QComboBox):
+                w.setCurrentIndex(max(0, w.findData(val)))
+            elif isinstance(w, QtWidgets.QDoubleSpinBox):
+                w.setValue(float(val))
+            else:
+                w.setValue(int(val))
+        custom = p.get("profile") == "custom"
+        for k in ("c_live_cache", "c_vod_cache", "c_stall_timeout", "c_max_retries"):
+            self.w[k].setEnabled(custom)
+        self._loading = False
+
+    def _set(self, key, val):
+        if self._loading:
+            return
+        self.win.set_setting(key, val)
+        if key == "profile":
+            self.sync()
+
+
+def qr_pixmap(text, size=180):
+    mat = XP.qr_matrix(text)
+    n = len(mat) + 8
+    img = QtGui.QImage(n, n, QtGui.QImage.Format.Format_RGB32)
+    img.fill(QtGui.QColor("white"))
+    for r, row in enumerate(mat):
+        for c, on in enumerate(row):
+            if on:
+                img.setPixel(c + 4, r + 4, 0xFF000000)
+    return QtGui.QPixmap.fromImage(img.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                                              Qt.TransformationMode.FastTransformation))
+
+
+class AdminPanel(QtWidgets.QWidget):
+    """Section « Administration depuis un navigateur » : adresse, code PIN et QR code."""
+
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+        h = QtWidgets.QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        left = QtWidgets.QVBoxLayout()
+        left.addWidget(label(
+            "Gérez l'application depuis un ordinateur, un téléphone ou une tablette du même réseau : ajout de listes "
+            "(glisser-déposer de fichiers M3U), catégories, doublons, favoris, guide TV, réglages, journaux, "
+            "sauvegarde. Accès protégé par un code PIN et limité au réseau local (jamais exposé sur Internet).",
+            "overview", wrap=True))
+        self.on = QtWidgets.QCheckBox("Activer l'administration web")
+        self.on.toggled.connect(self._toggle)
+        left.addWidget(self.on)
+        self.addr = QtWidgets.QLabel()
+        self.addr.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.addr.setStyleSheet("font-size:15pt; font-weight:700;")
+        left.addWidget(self.addr)
+        self.info = label("", "meta", wrap=True)
+        left.addWidget(self.info)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(button("Nouveau code PIN", "secondary", self._new_pin))
+        row.addWidget(button("Ouvrir dans mon navigateur", "secondary", self._open))
+        row.addStretch(1)
+        left.addLayout(row)
+        left.addStretch(1)
+        h.addLayout(left, 1)
+        self.qr = QtWidgets.QLabel()
+        self.qr.setFixedSize(190, 190)
+        h.addWidget(self.qr)
+        self.refresh()
+
+    def refresh(self):
+        adm = self.win.cfg["admin"]
+        running = bool(self.win.admin and self.win.admin.httpd)
+        self.on.blockSignals(True)
+        self.on.setChecked(running)
+        self.on.blockSignals(False)
+        if running:
+            urls = self.win.admin.urls()
+            self.addr.setText(urls[0])
+            others = f"   Autres adresses : {', '.join(urls[1:])}" if len(urls) > 1 else ""
+            self.info.setText(f"Adresse IP : {urls[0].split('//')[1].split(':')[0]}  ·  Port : {self.win.admin.port}  ·  "
+                              f"Code PIN : {adm['pin']}{others}")
+            self.qr.setPixmap(qr_pixmap(urls[0], 186))
+            self.qr.show()
+        else:
+            self.addr.setText("")
+            self.info.setText(f"Désactivée.  Code PIN : {adm['pin']}")
+            self.qr.clear()
+            self.qr.hide()
+
+    def _toggle(self, on):
+        self.win.set_admin(on)
+        self.refresh()
+
+    def _new_pin(self):
+        self.win.cfg["admin"]["pin"] = f"{random.SystemRandom().randrange(1_000_000):06d}"
+        if self.win.admin:
+            self.win.admin.pin = self.win.cfg["admin"]["pin"]
+            self.win.admin.tokens.clear()
+        self.win.save()
+        self.refresh()
+
+    def _open(self):
+        if not (self.win.admin and self.win.admin.httpd):
+            self.win.set_admin(True)
+            self.refresh()
+        if self.win.admin and self.win.admin.httpd:
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl(f"http://127.0.0.1:{self.win.admin.port}"))
+
+
+class _Bridge(QtCore.QObject):
+    """Exécute une fonction dans le fil de l'interface et attend son résultat (administration web)."""
+    run = QtCore.Signal(object)
+
+    def __init__(self):
+        super().__init__()
+        self.run.connect(self._do, Qt.ConnectionType.QueuedConnection)
+
+    @staticmethod
+    def _do(job):
+        fn, ev, box = job
+        try:
+            box["r"] = fn()
+        except Exception as e:      # renvoyé au serveur web
+            box["e"] = e
+        ev.set()
+
+    def call(self, fn, timeout=60):
+        if QtCore.QThread.currentThread() is QtWidgets.QApplication.instance().thread():
+            return fn()
+        ev, box = threading.Event(), {}
+        self.run.emit((fn, ev, box))
+        if not ev.wait(timeout):
+            raise TimeoutError("l'application ne répond pas")
+        if "e" in box:
+            raise box["e"]
+        return box.get("r")
+
+
+class AdminApi:
+    """Réponses de l'administration web (appelées depuis le serveur, exécutées dans l'interface)."""
+
+    def __init__(self, win):
+        self.win = win
+        self.bridge = _Bridge()
+
+    def app_logs(self):
+        return list(self.win.app_log)
+
+    def _gui(self, fn):
+        return self.bridge.call(fn)
+
+    # -- lecture des données
+    def state(self):
+        w = self.win
+        cur = (w.current_source or {}).get("id")
+        srcs = []
+        for s in w.cfg["sources"]:
+            srcs.append({"id": s["id"], "name": s["name"], "type": s["type"], "current": s["id"] == cur,
+                         "file": s.get("file") or "", "epg": s.get("epg") or "", "epg_auto": s.get("epg_auto") or "",
+                         "url": s.get("url", "") if s["type"] == "m3u" and not s.get("file") else "",
+                         "server": s.get("server", ""), "updated": s.get("updated_ts") or 0})
+        c = Counter(i["kind"] for i in w.lib.items)
+        raw_live = sum(1 for i in (w._raw[0] or []) if i.get("kind") == "live")
+        settings = []
+        for sec, key, lab, typ, default, extra in XP.SETTINGS:
+            settings.append({"section": sec, "key": key, "label": lab, "type": typ, "default": default,
+                             "value": w.pset.get(key, default),
+                             "choices": extra if typ == "choice" else None,
+                             "min": extra[0] if typ in ("int", "float") else None,
+                             "max": extra[1] if typ in ("int", "float") else None})
+        return {"app": APP_TITLE, "version": APP_VERSION, "platform": "Windows", "sources": srcs,
+                "counts": {"live": c.get("live", 0), "live_raw": raw_live, "movie": c.get("movie", 0),
+                           "series": c.get("series", 0)},
+                "settings": settings, "profile": (w.profile or {}).get("name", ""),
+                "hardware": {"cores": w.cores, "ram_mb": w.ram_mb, "tier": w.hw_tier},
+                "favorites": len(w.favorites), "hidden_groups": w.cfg.get("hidden_groups") or []}
+
+    def categories(self, kind):
+        w = self.win
+        raw = [i for i in (w._raw[0] or []) if i.get("kind") == kind]
+        counts = Counter(i["group"] for i in raw)
+        hidden = set(w.cfg.get("hidden_groups") or [])
+        order = {g: n for n, g in enumerate(w.cfg.get("group_order") or [])}
+        rows = [{"group": g, "name": pretty_group(g), "count": n, "hidden": g in hidden,
+                 "country": country_name(detect_country(g)) if kind == "live" else ""}
+                for g, n in counts.items()]
+        rows.sort(key=lambda r: (order.get(r["group"], 10 ** 6), -r["count"]))
+        return rows
+
+    def channels(self, group="", q="", limit=300, favs_only=False):
+        w = self.win
+        terms = [t for t in norm(q).split() if t]
+        out = []
+        for it in w.lib.by_kind.get("live") or []:
+            if group and it["group"] != group:
+                continue
+            if favs_only and it["url"] not in w.favorites:
+                continue
+            if terms and not all(t in it.get("_q", "") for t in terms):
+                continue
+            vs = it.get("variants") or [{"url": it["url"], "q": 0}]
+            rows = [w.stats.row(v["url"]) for v in vs]
+            out.append({"url": it["url"], "name": it.get("_title") or it["name"], "group": pretty_group(it["group"]),
+                        "logo": it.get("logo") or "", "qualities": it.get("_qlabels") or
+                        (XP.Q_LABELS.get(vs[0]["q"]) or ""), "variants": len(vs),
+                        "fav": it["url"] in w.favorites,
+                        "dead": all(w.stats.dead(v["url"]) for v in vs),
+                        "ok": sum(r[0] for r in rows), "fail": sum(r[1] for r in rows)})
+            if len(out) >= limit:
+                break
+        return out
+
+    # -- actions
+    def handle(self, method, path, q, body):
+        w = self.win
+        if method == "GET":
+            if path == "state":
+                return self._gui(self.state)
+            if path == "categories":
+                return self._gui(lambda: self.categories(q.get("kind", "live")))
+            if path == "channels":
+                return self._gui(lambda: self.channels(q.get("group", ""), q.get("q", ""), int(q.get("limit", 300)),
+                                                       q.get("favs") == "1"))
+            if path == "diag":
+                return self._gui(w.player.diag_data)
+            raise LookupError("demande inconnue")
+        if path == "settings":
+            def apply():
+                out = {}
+                for k, v in body.items():
+                    out[k] = w.set_setting(k, v)
+                w.pages["settings"].form.sync()
+                return out
+            return self._gui(apply)
+        if path == "sources/add":
+            return self._gui(lambda: self._add_source(body))
+        if path.startswith("sources/"):
+            act = path.split("/", 1)[1]
+            sid = body.get("id", "")
+            if not w._source_by_id(sid):
+                raise LookupError("source introuvable")
+
+            def do():
+                src = w._source_by_id(sid)
+                if act == "select":
+                    w.set_source(sid)
+                elif act == "refresh":
+                    w.maint.refresh_source(src)
+                elif act == "delete":
+                    w.delete_source(sid, confirm=False)
+                elif act == "rename":
+                    src["name"] = str(body.get("name") or src["name"]).strip()[:80] or src["name"]
+                    w.save()
+                    w._reload_sources(w.cfg.get("last_source"))
+                elif act == "epg":
+                    url = str(body.get("url") or "").strip()
+                    if url and not re.match(r"^https?://", url, re.I):
+                        raise ValueError("l'adresse du guide doit commencer par http:// ou https://")
+                    if url:
+                        src["epg"] = url
+                    else:
+                        src.pop("epg", None)
+                    w.guides.pop(sid, None)
+                    w.save()
+                    if w.epg_url(src):
+                        w.load_guide(src, force=True)
+                else:
+                    raise LookupError("action inconnue")
+                w.pages["settings"].rebuild()
+            return self._gui(do)
+        if path == "categories":
+            def cats():
+                if "hidden" in body:
+                    w.cfg["hidden_groups"] = [str(g) for g in body["hidden"]][:5000]
+                if "order" in body:
+                    w.cfg["group_order"] = [str(g) for g in body["order"]][:5000]
+                w.save()
+                w._apply_library(*w._raw)
+            return self._gui(cats)
+        if path == "favorites":
+            def fav():
+                url = str(body.get("url") or "")
+                it = w.lib.by_url.get(url)
+                if not it:
+                    raise LookupError("chaîne introuvable")
+                if bool(body.get("on")) != (url in w.favorites):
+                    w.toggle_favorite(it)
+            return self._gui(fav)
+        if path == "maintenance":
+            act = body.get("action")
+            return self._gui(lambda: w.maint.action(act, body))
+        if path == "restore":
+            return self._gui(lambda: w.maint.restore(body.get("config") or body))
+        raise LookupError("demande inconnue")
+
+    def _add_source(self, body):
+        w = self.win
+        typ = body.get("type")
+        sid = uuid.uuid4().hex[:12]
+        name = str(body.get("name") or "").strip()[:80]
+        if typ == "xtream":
+            server, user, pwd = (str(body.get(k) or "").strip() for k in ("server", "user", "password"))
+            if not (server and user and pwd):
+                raise ValueError("serveur, identifiant et mot de passe requis")
+            src = {"id": sid, "type": "xtream", "name": name or urllib.parse.urlparse(
+                server if "://" in server else "http://" + server).netloc, "server": server, "user": user,
+                "password": pwd, "live_ext": body.get("live_ext") or "ts"}
+        else:
+            url = str(body.get("url") or "").strip()
+            if not re.match(r"^https?://", url, re.I):
+                raise ValueError("le lien doit commencer par http:// ou https://")
+            pu = urllib.parse.urlparse(url)
+            qs = urllib.parse.parse_qs(pu.query)
+            if "get.php" in pu.path.lower() and qs.get("username") and qs.get("password"):
+                src = {"id": sid, "type": "xtream", "name": name or pu.netloc, "server": f"{pu.scheme}://{pu.netloc}",
+                       "user": qs["username"][0], "password": qs["password"][0], "live_ext": "ts"}
+            else:
+                src = {"id": sid, "type": "m3u", "name": name or pu.netloc or "Liste M3U", "url": url}
+        if body.get("epg"):
+            src["epg"] = str(body["epg"]).strip()
+        w._add_source(src)
+        w.log(f"Source ajoutée depuis l'administration web : {src['name']}")
+        return {"id": sid}
+
+    def upload(self, name, data):
+        tmpdir = os.path.join(DATA_DIR, "tmp")
+        os.makedirs(tmpdir, exist_ok=True)
+        base = safe_filename(os.path.basename(name)) or "liste.m3u"
+        path = os.path.join(tmpdir, base if base.lower().endswith(M3U_EXTS) else base + ".m3u")
+        with open(path, "wb") as f:
+            f.write(data)
+        try:
+            try:
+                _d, n = read_playlist_file(path)
+            except RuntimeError as e:
+                raise ValueError(str(e))
+            src = file_source(path)
+            src.pop("file_orig", None)        # le fichier envoyé n'a pas d'original sur ce PC
+            self._gui(lambda: self.win._add_source(src))
+            self.win.log(f"Liste envoyée depuis le navigateur : {base} ({n} entrées)")
+            return {"id": src["id"], "entries": n}
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    def backup(self):
+        return self._gui(lambda: self.win.maint.backup_data())
+
+
+class Maintenance(QtCore.QObject):
+    """Actualisation des listes, sauvegarde, nettoyage du cache, vérification des chaînes."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.timer = QtCore.QTimer(self, interval=10 * 60 * 1000)
+        self.timer.timeout.connect(self.tick)
+        self._last_clean = 0
+
+    def start(self):
+        self.timer.start()
+        QtCore.QTimer.singleShot(90 * 1000, self.tick)
+
+    def tick(self):
+        w = self.win
+        p = w.pset
+        now = time.time()
+        if p.get("auto_backup", True):
+            try:
+                if XP.auto_backup(CONFIG_PATH, os.path.join(DATA_DIR, "sauvegardes")):
+                    w.log("Sauvegarde automatique de la configuration")
+            except OSError:
+                pass
+        h = int(p.get("auto_refresh_h", 24) or 0)
+        src = w.current_source
+        if h > 0 and src and now - (src.get("updated_ts") or 0) > h * 3600 and not w._player_on:
+            self.refresh_source(src, quiet=True)
+        if now - self._last_clean > 24 * 3600:
+            self.clean()
+        if XP.auto_cache_relax(w.cfg, now - (w.cfg.get("auto_stable_since") or now)):
+            w.cfg["auto_stable_since"] = now
+            w.log(f"Profil AUTO : connexion stable, mémoire tampon ramenée à {w.cfg['auto_live_cache']:g} s")
+        w._dirty = True
+
+    def refresh_source(self, src, quiet=False):
+        w = self.win
+        w.log(f"Actualisation de « {src['name']} »")
+        w.run_task(lambda: fetch_source(src), lambda d, s=src: w._fetched(s, d),
+                   lambda e, s=src: w.log(f"Actualisation impossible de « {s['name']} » : {e}"),
+                   quiet=quiet, busy=None if quiet else f"Actualisation de « {src['name']} »…")
+
+    def refresh_all(self):
+        for s in list(self.win.cfg["sources"]):
+            self.refresh_source(s, quiet=s is not self.win.current_source)
+        self.win.toast("Actualisation des listes lancée…")
+
+    def clean(self, now=False):
+        w = self.win
+        self._last_clean = time.time()
+        mb = int(w.pset.get("cache_max_mb", 500))
+
+        def work():
+            n1, b1 = XP.clean_cache([IMG_DIR], mb)
+            n2, b2 = XP.clean_cache([os.path.join(DATA_DIR, "epg"), os.path.join(DATA_DIR, "tmp")], 200, 7)
+            n3, b3 = XP.clean_cache([META_DIR], 400, 120)
+            return n1 + n2 + n3, b1 + b2 + b3
+
+        def done(r):
+            w.log(f"Nettoyage du cache : {r[0]} fichiers, {fmt_size(r[1])} libérés")
+            if now:
+                w.toast(f"Cache nettoyé : {fmt_size(r[1])} libérés.")
+        w.run_task(work, done, lambda e: w.log(f"Nettoyage impossible : {e}"), quiet=True)
+
+    def check_urls(self, items, title):
+        w = self.win
+        urls = []
+        for it in items:
+            for v in it.get("variants") or [{"url": it["url"]}]:
+                urls.append(v["url"])
+        urls = urls[:400]
+        if not urls:
+            w.toast("Aucune chaîne à vérifier.")
+            return
+        w.toast(f"Vérification de {len(urls)} flux…")
+
+        def done(res):
+            bad = [u for u, (ok, _m) in res.items() if not ok]
+            w._dirty = True
+            w.log(f"{title} : {len(res) - len(bad)} flux OK, {len(bad)} indisponibles")
+            w.toast(f"{title} : {len(res) - len(bad)} OK, {len(bad)} indisponible(s).")
+        w.run_task(lambda: XP.check_streams(urls, USER_AGENT, w.stats), done,
+                   lambda e: w.log(f"Vérification impossible : {e}"), quiet=True)
+
+    def check_favorites(self):
+        w = self.win
+        items = [i for i in w.lib.by_kind.get("live") or [] if i["url"] in w.favorites]
+        if not items:
+            items = w.trending_channels(30)
+        self.check_urls(items, "Vérification des chaînes")
+
+    def backup_data(self):
+        w = self.win
+        w.save()
+        data = json.loads(json.dumps(w.cfg))
+        data.pop("stream_stats", None)
+        data["_backup"] = {"app": APP_TITLE, "version": APP_VERSION, "date": datetime.now().isoformat(timespec="seconds")}
+        return data
+
+    def export_config(self):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self.win, "Sauvegarder la configuration",
+                                                        f"iptv-player-sauvegarde-{datetime.now():%Y%m%d}.json",
+                                                        "Configuration (*.json)")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.backup_data(), f, ensure_ascii=False, indent=1)
+            self.win.toast("Configuration sauvegardée ✓")
+
+    def import_config(self):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self.win, "Restaurer une configuration", "",
+                                                        "Configuration (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                self.restore(json.load(f))
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self.win, APP_TITLE, f"Restauration impossible :\n{e}")
+
+    def restore(self, data):
+        w = self.win
+        if not isinstance(data, dict) or not isinstance(data.get("sources"), list) or \
+                not isinstance(data.get("profiles"), list):
+            raise ValueError("ce fichier n'est pas une sauvegarde d'IPTV Player")
+        XP.auto_backup(CONFIG_PATH, os.path.join(DATA_DIR, "sauvegardes"))
+        keep_admin = w.cfg.get("admin")
+        stats = w.cfg.get("stream_stats", {})
+        data = {k: v for k, v in data.items() if not k.startswith("_")}
+        w.cfg.clear()
+        w.cfg.update(data)
+        w.cfg["admin"] = keep_admin
+        w.cfg["stream_stats"] = stats
+        XP.ensure_settings(w.cfg)
+        w.stats = XP.StreamStats(w.cfg["stream_stats"])
+        w.profile = None
+        w.save()
+        profs = w.cfg["profiles"]
+        w.select_profile(profs[0]["id"], go_home=False)
+        w._reload_sources(w.cfg.get("last_source"))
+        w.pages["settings"].rebuild()
+        w.log("Configuration restaurée")
+        w.toast("Configuration restaurée ✓")
+        return {"ok": True}
+
+    def action(self, act, body):
+        w = self.win
+        if act == "refresh_all":
+            self.refresh_all()
+        elif act == "clear_cache":
+            self.clean(now=True)
+        elif act == "check_favorites":
+            self.check_favorites()
+        elif act == "check_group":
+            g = body.get("group", "")
+            self.check_urls([i for i in w.lib.by_kind.get("live") or [] if i["group"] == g][:150], f"Catégorie {g}")
+        elif act == "reset_settings":
+            XP.reset_settings(w.cfg)
+            w.save()
+            w.pages["settings"].form.sync()
+            w._apply_library(*w._raw)
+        elif act == "backup_now":
+            XP.auto_backup(CONFIG_PATH, os.path.join(DATA_DIR, "sauvegardes"))
+        else:
+            raise LookupError("action inconnue")
+        return {"ok": True}
+
+
 # --------------------------------------------------------------------------- #
 #  Lecteur
 # --------------------------------------------------------------------------- #
@@ -5124,6 +5774,25 @@ class PlayerPage(QtWidgets.QWidget):
         self._last_cursor = None
         self._idle = 0
         self.setObjectName("player")
+        # flux en cours (qualité, reconnexions, diagnostic)
+        self._variants, self._vidx, self._url = [], 0, None
+        self._failed = set()
+        self._retries = self._reconnects = self._stalls = 0
+        self._last_progress = self._open_ts = self._last_recover = 0.0
+        self._zap_ms = None
+        self._prog_sig = None
+        self._ok_noted = False
+        self._stable_since = 0.0
+        self._degraded = {}              # chaîne → (qualité maximale après un repli, heure)
+        self._upgrade_try = 0.0
+        self._upgrade_block = 0.0
+        self._gave_up = False
+        self._bytes = (0, 0.0)
+        self._rate = 0.0
+        self._fps_done = False
+        self.usage = XP.ProcUsage()
+        self.display = XP.DisplayRate()
+        self.tune = None
 
         self.video = VideoFrame()
         self.video.double_clicked.connect(win.toggle_fullscreen)
@@ -5192,7 +5861,15 @@ class PlayerPage(QtWidgets.QWidget):
         self.vol.valueChanged.connect(self._set_volume)
         self.b_fs = button("⛶", "ctrl", win.toggle_fullscreen)
         self.b_fs.setToolTip("Plein écran (F)")
-        for w in (self.b_audio, self.b_subs, label("🔈", "meta"), self.vol, self.b_fs):
+        self.b_quality = button("⚡ Qualité", "ctrl")
+        self.menu_quality = QtWidgets.QMenu(self)
+        self.menu_quality.aboutToShow.connect(self._fill_quality)
+        self.b_quality.setMenu(self.menu_quality)
+        self.b_tune = button("🎚 Image et son", "ctrl", self.open_tune)
+        self.b_diag = button("📊", "ctrl", self.toggle_diag)
+        self.b_diag.setToolTip("Diagnostic en temps réel (I)")
+        for w in (self.b_quality, self.b_audio, self.b_subs, self.b_tune, self.b_diag, label("🔈", "meta"),
+                  self.vol, self.b_fs):
             br.addWidget(w)
         cl.addLayout(br)
 
@@ -5201,6 +5878,15 @@ class PlayerPage(QtWidgets.QWidget):
         self.side.setFixedWidth(300)
         self.side.hide()
         self.side.itemClicked.connect(lambda it: self.play_index(self.side.row(it)))
+        self.diag = QtWidgets.QLabel()
+        self.diag.setObjectName("diag")
+        self.diag.setFixedWidth(330)
+        self.diag.setWordWrap(True)
+        self.diag.setTextFormat(Qt.TextFormat.RichText)
+        self.diag.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.diag.setStyleSheet("QLabel#diag { background:#0b0e14; color:#cfd5e2; padding:14px; "
+                                "font-family:Consolas,'Cascadia Mono',monospace; font-size:9pt; }")
+        self.diag.hide()
 
         center = QtWidgets.QVBoxLayout()
         center.setContentsMargins(0, 0, 0, 0)
@@ -5213,6 +5899,7 @@ class PlayerPage(QtWidgets.QWidget):
         h.setSpacing(0)
         h.addLayout(center, 1)
         h.addWidget(self.side)
+        h.addWidget(self.diag)
 
         self.instance = self.mp = None
         global VLC_ERROR
@@ -5287,37 +5974,14 @@ class PlayerPage(QtWidgets.QWidget):
         url = item["url"]
         pr = self.win.progress.get(url)
         start_s = pr["pos"] / 1000 if (resume and not live and pr and not pr.get("done") and pr.get("pos", 0) > 30000) else 0
-        local = self.win.downloads.local_file(url)
-        mins = int(self.win.cfg.get("buffer_min", 0) or 0)
-        self.buf_l.hide()
-        if local:
-            media = self.instance.media_new_path(local)
-            self.buf_l.setText("✓ Lecture du fichier téléchargé (hors ligne)")
-            self.buf_l.show()
-        elif not live and mins > 0 and url.lower().startswith(("http://", "https://")) and ".m3u8" not in url.lower():
-            sid, sess, purl = BUFFER.open(url, mins * 60)
-            if pr and pr.get("len"):
-                sess.bps = 1_000_000.0
-                sess._len_hint = pr["len"]
-            self._buf = (sid, sess, start_s)
-            self._buf_pending = True
-            self._rebuf = False
-            media = self.instance.media_new(purl)
-            self.buf_l.setText("Connexion…")
-            self.buf_l.show()
-        else:
-            media = self.instance.media_new(url)
-            media.add_option(f":http-user-agent={USER_AGENT}")
-        if live:
-            media.add_option(f":network-caching={int(self.win.cfg.get('live_cache', 2500))}")
-        for o in item.get("opts") or []:
-            media.add_option(":" + o)
-        if start_s:
-            media.add_option(f":start-time={start_s:.0f}")
-        self.mp.set_media(media)
-        if not self._buf:
-            self.mp.play()
-        if live and item.get("stream_id"):
+        self._failed = set()
+        self._retries = self._reconnects = self._stalls = 0
+        self._gave_up = False
+        self._upgrade_try = 0.0
+        self._variants = self._variants_of(item)
+        self._vidx = self._choose_variant(item) if live else 0
+        self._open(start_s=start_s, resume_pr=pr)
+        if live and self.win.has_epg(item):
             self.win.fetch_epg(item, self._epg)
 
     def _epg(self, item, progs):
@@ -5372,6 +6036,8 @@ class PlayerPage(QtWidgets.QWidget):
             self.mp.stop()
         self._close_buffer()
         self.current = None
+        self._url = None
+        self.display.restore()
 
     # -- pré-chargement (1, 5 ou 10 minutes d'avance)
     def _close_buffer(self):
@@ -5387,14 +6053,9 @@ class PlayerPage(QtWidgets.QWidget):
             item = self.current
             self._close_buffer()
             self.buf_l.setText("Pré-chargement indisponible pour ce flux : lecture directe")
-            media = self.instance.media_new(item["url"])
-            media.add_option(f":http-user-agent={USER_AGENT}")
-            for o in item.get("opts") or []:
-                media.add_option(":" + o)
-            if start_s:
-                media.add_option(f":start-time={start_s:.0f}")
-            self.mp.set_media(media)
+            self.mp.set_media(self._make_media(item["url"], item.get("opts") or [], False, start_s))
             self.mp.play()
+            self._after_start()
             return
         length = self.mp.get_length() if self.mp else 0
         sess.set_length(length if length > 0 else getattr(sess, "_len_hint", 0))
@@ -5413,6 +6074,7 @@ class PlayerPage(QtWidgets.QWidget):
             if ready >= need or sess.at_end():
                 self._buf_pending = False
                 self.mp.play()
+                self._after_start()
             else:
                 self.buf_l.setText(f"⬇ Pré-chargement {fmt_secs(ready)} / {fmt_secs(need)}{sp}")
             return
@@ -5462,6 +6124,10 @@ class PlayerPage(QtWidgets.QWidget):
 
     def set_immersive(self, on):
         self.immersive = on
+        if not on:
+            self.display.restore()
+        else:
+            self._fps_done = False
         self._idle = 0
         self._show_bars(True)
         if not on:
@@ -5492,7 +6158,7 @@ class PlayerPage(QtWidgets.QWidget):
         playing = self.mp.is_playing()
         self.b_play.setText("⏸" if playing else "▶")
         st = self.mp.get_state()
-        if st == vlc.State.Error and self.current:
+        if st == vlc.State.Error and self.current and self.current.get("kind") != "live" and self._retries >= 2:
             self.subtitle.setText("⚠  Impossible de lire ce flux (hors ligne ou format non supporté).")
         if st == vlc.State.Ended and self.current and not self._ended_handled:
             self._ended_handled = True
@@ -5504,6 +6170,7 @@ class PlayerPage(QtWidgets.QWidget):
         live = self.current and self.current.get("kind") == "live"
         if (st == vlc.State.Buffering or st == vlc.State.Opening) and not self._buf_pending:
             self.len_l.setText("Chargement…")
+        self._watchdog(st, live)
         if length > 0 and not live:
             self.seek.setEnabled(True)
             self.seek.show()
@@ -5555,6 +6222,514 @@ class PlayerPage(QtWidgets.QWidget):
             self._fill_tracks(self.menu_subs, list, None, None)
 
 
+    # ------------------------------------------------------------------ flux, qualité, anti-freeze
+    def _variants_of(self, item):
+        vs = item.get("variants")
+        if vs:
+            return vs
+        return [{"url": item["url"], "name": item.get("name", ""), "q": XP.quality_of(item.get("name"), item.get("group")),
+                 "opts": item.get("opts") or [], "group": item.get("group", "")}]
+
+    def _ckey(self, item=None):
+        item = item or self.current or {}
+        return item.get("_ckey") or item.get("url") or ""
+
+    def _cap(self, key=None, with_degrade=True):
+        """Qualité maximale permise : réglage, écran, matériel, débit mesuré, repli en cours."""
+        p = self.win.pset
+        mr = p.get("max_res", "auto")
+        if mr in XP.Q_CODES:
+            cap = XP.Q_CODES[mr]
+        else:
+            scr = self.screen() or QtWidgets.QApplication.primaryScreen()
+            hpx = scr.geometry().height() * scr.devicePixelRatio() if scr else 1080
+            cap = 4 if hpx >= 1800 else 3
+        if self.win.hw_tier == "low":
+            cap = min(cap, 3)
+        nc = XP.network_cap(self.win.cfg.get("bw_peak") or 0)
+        if nc:
+            cap = min(cap, max(nc, 2))
+        d = self._degraded.get(key or self._ckey()) if with_degrade else None
+        if d and time.time() - d[1] < 900:
+            cap = min(cap, d[0] or 2)
+        return cap
+
+    def _choose_variant(self, item, below=None):
+        key = self._ckey(item)
+        pref = self.win.cfg["ch_quality"].get(key) or self.win.pset.get("quality", "auto")
+        return XP.pick_variant(self._variants, pref, self._cap(key), self.win.stats, self._failed, below)
+
+    def _profile(self):
+        return XP.effective_profile(self.win.pset, self.win.cfg, self.win.hw_tier)
+
+    def _make_media(self, url, opts, live, start_s=0):
+        p, prof = self.win.pset, self._profile()
+        media = self.instance.media_new(url)
+        media.add_option(f":http-user-agent={USER_AGENT}")
+        cache = prof["live_cache"] if live else prof["vod_cache"]
+        media.add_option(f":network-caching={int(max(300, min(60000, cache * 1000)))}")
+        media.add_option(":http-reconnect")
+        media.add_option(":avcodec-hw=" + ("any" if p.get("hwdec", True) else "none"))
+        media.add_option(":deinterlace=" + {"on": "1", "off": "0"}.get(p.get("deinterlace"), "-1"))
+        media.add_option(":deinterlace-mode=yadif")
+        mr = p.get("max_res", "auto")
+        if mr in XP.Q_CODES:
+            media.add_option(":preferred-resolution=" + {"4k": "2160", "fhd": "1080", "hd": "720", "sd": "576"}[mr])
+        a = p.get("a_lang", "fr")
+        if a in XP.LANG3:
+            media.add_option(":audio-language=" + XP.LANG3[a])
+        sl = p.get("s_lang", "off")
+        if sl == "off":
+            media.add_option(":sub-track=-1")
+        else:
+            media.add_option(":sub-language=" + XP.LANG3.get(a if sl == "auto" else sl, "fr"))
+        sharp = int(p.get("sharpness", 0) or 0)
+        if sharp > 0:
+            media.add_option(":video-filter=sharpen")
+            media.add_option(f":sharpen-sigma={sharp / 50:.2f}")
+        if p.get("normalize"):
+            media.add_option(":audio-filter=normvol")
+            media.add_option(":norm-max-level=2.0")
+        if p.get("hdr") == "sdr":
+            media.add_option(":d3d11-hdr-mode=never")
+        for o in opts or []:
+            media.add_option(":" + o)
+        if start_s:
+            media.add_option(f":start-time={start_s:.0f}")
+        return media
+
+    def _open(self, start_s=0, resume_pr=None, reconnect=False):
+        item = self.current
+        live = item.get("kind") == "live"
+        v = self._variants[self._vidx] if self._variants else {"url": item["url"], "opts": item.get("opts") or []}
+        url = v["url"]
+        self._url = url
+        self._ok_noted = False
+        self._prog_sig = None
+        self._fps_done = False
+        self._open_ts = self._last_progress = time.time()
+        self._zap_ms = None
+        self._bytes = (0, time.time())
+        local = self.win.downloads.local_file(item["url"]) if not live else None
+        mins = int(self.win.cfg.get("buffer_min", 0) or 0)
+        self.buf_l.hide()
+        if local:
+            media = self.instance.media_new_path(local)
+            self.buf_l.setText("✓ Lecture du fichier téléchargé (hors ligne)")
+            self.buf_l.show()
+        elif not live and mins > 0 and url.lower().startswith(("http://", "https://")) and ".m3u8" not in url.lower():
+            sid, sess, purl = BUFFER.open(url, mins * 60)
+            if resume_pr and resume_pr.get("len"):
+                sess.bps = 1_000_000.0
+                sess._len_hint = resume_pr["len"]
+            self._buf = (sid, sess, start_s)
+            self._buf_pending = True
+            self._rebuf = False
+            media = self._make_media(purl, item.get("opts") or [], False)
+            self.buf_l.setText("Connexion…")
+            self.buf_l.show()
+        else:
+            media = self._make_media(url, v.get("opts") or [], live, start_s)
+        if live and len(self._variants) > 1:
+            q = XP.Q_LABELS.get(v.get("q"), "") or "Standard"
+            self.b_quality.setText(f"⚡ {q}")
+        else:
+            self.b_quality.setText("⚡ Qualité")
+        self.b_quality.setVisible(live)
+        self.mp.set_media(media)
+        if not self._buf:
+            self.mp.play()
+            self._after_start()
+
+    def _after_start(self):
+        QtCore.QTimer.singleShot(700, self._apply_runtime)
+
+    def _apply_runtime(self):
+        """Réglages appliqués au lecteur en cours (image, format, synchro son)."""
+        if not self.mp:
+            return
+        p = self.win.pset
+        try:
+            b, c, sa = int(p.get("brightness", 0)), int(p.get("contrast", 0)), int(p.get("saturation", 0))
+            on = any((b, c, sa))
+            self.mp.video_set_adjust_int(vlc.VideoAdjustOption.Enable, 1 if on else 0)
+            if on:
+                self.mp.video_set_adjust_float(vlc.VideoAdjustOption.Brightness, 1 + b / 100)
+                self.mp.video_set_adjust_float(vlc.VideoAdjustOption.Contrast, 1 + c / 100)
+                self.mp.video_set_adjust_float(vlc.VideoAdjustOption.Saturation,
+                                               1 + sa / 100 * (2 if sa > 0 else 1))
+            self._apply_aspect()
+            self.mp.audio_set_delay(int(p.get("av_delay", 0)) * 1000)
+        except Exception:
+            pass
+
+    def _apply_aspect(self):
+        if not self.mp:
+            return
+        a = self.win.pset.get("aspect", "auto")
+        w, h = max(1, self.video.width()), max(1, self.video.height())
+        try:
+            self.mp.video_set_crop_geometry(None)
+            if a == "auto":
+                self.mp.video_set_aspect_ratio(None)
+            elif a == "fill":
+                self.mp.video_set_aspect_ratio(None)
+                self.mp.video_set_crop_geometry(f"{w}:{h}")
+            elif a == "stretch":
+                self.mp.video_set_aspect_ratio(f"{w}:{h}")
+            else:
+                self.mp.video_set_aspect_ratio(a)
+        except Exception:
+            pass
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.win.pset.get("aspect") in ("fill", "stretch"):
+            QtCore.QTimer.singleShot(50, self._apply_aspect)
+
+    def apply_setting(self, key):
+        """Un réglage a changé : appliqué tout de suite quand c'est possible, sinon au prochain flux."""
+        if not self.mp or not self.current:
+            return
+        if key in ("brightness", "contrast", "saturation", "aspect", "av_delay"):
+            self._apply_runtime()
+        elif key == "deinterlace":
+            try:
+                mode = self.win.pset.get("deinterlace")
+                self.mp.video_set_deinterlace("yadif" if mode == "on" else None if mode == "off" else "yadif")
+            except Exception:
+                pass
+        elif key in ("sharpness", "normalize", "hwdec", "a_lang", "s_lang", "hdr", "profile", "c_live_cache",
+                     "c_vod_cache", "quality", "max_res") and self.current.get("kind") == "live":
+            if key in ("quality", "max_res"):
+                self._vidx = self._choose_variant(self.current)
+            self._open()                 # chaîne : on relance tout de suite avec les nouveaux réglages
+        elif key == "refresh":
+            self.display.restore()
+            self._fps_done = False
+
+    def _progress_sig(self):
+        try:
+            m = self.mp.get_media()
+            st = vlc.MediaStats()
+            if m and m.get_stats(st):
+                now = time.time()
+                rb, t0 = self._bytes
+                if now - t0 >= 2 and st.read_bytes >= rb:
+                    rate = (st.read_bytes - rb) / (now - t0)
+                    self._rate = rate
+                    if rate > (self.win.cfg.get("bw_peak") or 0) * 0.98 or now - self._open_ts < 8:
+                        # pointe de débit (remplissage de la mémoire tampon) ≈ capacité de la connexion
+                        old = self.win.cfg.get("bw_peak") or 0
+                        self.win.cfg["bw_peak"] = int(max(rate, old * 0.9)) if now - self._open_ts < 8 else int(rate)
+                    self._bytes = (st.read_bytes, now)
+                return (st.displayed_pictures, st.played_abuffers, st.decoded_video)
+        except Exception:
+            pass
+        return None
+
+    def _watchdog(self, st, live):
+        """Détection des blocages d'image, reconnexion, repli et remontée de qualité."""
+        if not self.current or not self._url or self._buf or self._gave_up:
+            return
+        now = time.time()
+        sig = self._progress_sig()
+        t = self.mp.get_time()
+        moving = st == vlc.State.Playing and (sig is None or sig != self._prog_sig or (t > 0 and t != getattr(self, "_t_prev", -1)))
+        self._t_prev = t
+        if sig is not None:
+            self._prog_sig = sig
+        if moving:
+            if self._zap_ms is None:
+                self._zap_ms = int((now - self._open_ts) * 1000)
+                self._stable_since = now
+            self._last_progress = now
+            if not self._ok_noted and now - self._open_ts > 20:
+                self._ok_noted = True
+                self._retries = 0
+                self.win.stats.ok(self._url)
+            if not self._fps_done:
+                self._apply_refresh()
+        if self.diag.isVisible() and int(now * 2) % 2 == 0:
+            self._update_diag(st)
+        if not live:
+            if st == vlc.State.Error and now - self._last_recover > 5 and self._retries < 2:
+                self._last_recover = now
+                self._retries += 1
+                pos = max(0, self.mp.get_time() // 1000 - 2) if self.mp.get_time() > 0 else 0
+                self.win.log(f"Erreur de lecture, nouvelle tentative : {self.current.get('name')}")
+                self._open(start_s=pos)
+            return
+        prof = self._profile()
+        if st == vlc.State.Paused:
+            self._last_progress = now
+            return
+        stuck = st in (vlc.State.Error, vlc.State.Ended) or (now - self._last_progress > prof["stall_timeout"])
+        if stuck and now - self._last_recover > 3:
+            self._recover("erreur" if st in (vlc.State.Error, vlc.State.Ended) else "blocage", prof)
+            return
+        # remontée de qualité quand la connexion est stable depuis 5 minutes
+        if (self.win.pset.get("upgrade", True) and len(self._variants) > 1 and moving
+                and not self.win.cfg["ch_quality"].get(self._ckey()) and self.win.pset.get("quality") == "auto"
+                and now > self._upgrade_block and now - self._stable_since > 300 and now - self._last_recover > 300):
+            best = XP.pick_variant(self._variants, "auto", self._cap(with_degrade=False), self.win.stats, self._failed)
+            if (self._variants[best]["q"] or 2) > (self._variants[self._vidx]["q"] or 2):
+                self._degraded.pop(self._ckey(), None)
+                self._upgrade_try = now
+                self._stable_since = now
+                self.win.log(f"Connexion stable : retour en {XP.Q_LABELS.get(self._variants[best]['q'])} "
+                             f"sur {self.current.get('_title') or self.current.get('name')}")
+                self._vidx = best
+                self._open()
+
+    def _recover(self, why, prof):
+        now = time.time()
+        self._last_recover = now
+        self._stalls += 1
+        name = self.current.get("_title") or self.current.get("name")
+        if why == "erreur":
+            self.win.stats.fail(self._url)
+        else:
+            self.win.stats.stall(self._url)
+            if prof["mode"] == "auto":
+                c = XP.auto_cache_after_stall(self.win.cfg)
+                self.win.log(f"Profil AUTO : mémoire tampon portée à {c:g} s")
+        upgraded_recently = self._upgrade_try and now - self._upgrade_try < 45
+        if upgraded_recently:
+            self._upgrade_block = now + 900
+            self._upgrade_try = 0.0
+        if self._retries < prof["max_retries"] and not upgraded_recently:
+            self._retries += 1
+            self._reconnects += 1
+            self.subtitle.setText(f"⟳ Reconnexion ({self._retries}/{prof['max_retries']})…")
+            self.win.log(f"{why.capitalize()} sur {name} : reconnexion {self._retries}")
+            self._open(reconnect=True)
+            return
+        if prof["fallback"] and len(self._variants) > 1:
+            self._failed.add(self._url)
+            curq = self._variants[self._vidx]["q"] or 2
+            nxt = XP.pick_variant(self._variants, "auto", 4, self.win.stats, self._failed,
+                                  below=curq if why == "blocage" else None)
+            if self._variants[nxt]["url"] not in self._failed:
+                self._degraded[self._ckey()] = (self._variants[nxt]["q"] or 1, now)
+                self._vidx = nxt
+                self._retries = 0
+                lab = XP.Q_LABELS.get(self._variants[nxt]["q"]) or "autre flux"
+                self.subtitle.setText(f"⇩ Bascule vers {lab} (flux {nxt + 1}/{len(self._variants)})")
+                self.win.log(f"{why.capitalize()} sur {name} : bascule vers {lab}")
+                self._open(reconnect=True)
+                return
+        self._gave_up = True
+        self.subtitle.setText("⚠  Chaîne indisponible pour le moment (tous les flux ont échoué).")
+        self.win.log(f"{name} : tous les flux ont échoué")
+
+    def _apply_refresh(self):
+        """Fréquence de l'écran adaptée au flux (plein écran seulement)."""
+        mode = self.win.pset.get("refresh", "off")
+        if mode == "off" or not self.immersive or not self.display.supported():
+            self._fps_done = True
+            return
+        fps = self.mp.get_fps() or 0
+        if mode == "auto" and fps <= 0:
+            return
+        self._fps_done = True
+        hwnd = int(self.win.winId())
+        modes = self.display.modes(hwnd)
+        hz = self.display.best_for_fps(fps, modes) if mode == "auto" else int(mode)
+        if hz and self.display.set(hwnd, hz):
+            self.win.log(f"Écran passé à {hz} Hz (flux à {fps:.2f} i/s)")
+        elif hz:
+            self.win.log(f"Fréquence {hz} Hz non disponible sur cet écran ({', '.join(map(str, modes)) or '?'} Hz)")
+
+    # -- menus et panneaux
+    def _fill_quality(self):
+        m = self.menu_quality
+        m.clear()
+        if not self.current:
+            return
+        key = self._ckey()
+        cur = self.win.cfg["ch_quality"].get(key)
+        a = m.addAction("AUTO (meilleure qualité possible)")
+        a.setCheckable(True)
+        a.setChecked(not cur)
+        a.triggered.connect(lambda: self._set_quality(None))
+        m.addSeparator()
+        seen = set()
+        for i, v in enumerate(self._variants):
+            lab = XP.Q_LABELS.get(v["q"]) or "Standard"
+            host = urllib.parse.urlparse(v["url"]).netloc
+            extra = "" if lab not in seen else "  (flux de secours)"
+            seen.add(lab)
+            act = m.addAction(f"{lab}{extra}   —   {host}{'   ✓' if i == self._vidx else ''}")
+            act.triggered.connect(lambda _c=False, i=i: self._set_variant(i))
+        if len(self._variants) <= 1:
+            m.addAction("Une seule qualité disponible pour cette chaîne").setEnabled(False)
+
+    def _set_quality(self, code):
+        key = self._ckey()
+        if code:
+            self.win.cfg["ch_quality"][key] = code
+        else:
+            self.win.cfg["ch_quality"].pop(key, None)
+        self._degraded.pop(key, None)
+        self._vidx = self._choose_variant(self.current)
+        self.win.save()
+        self._open()
+
+    def _set_variant(self, i):
+        q = self._variants[i]["q"]
+        code = {v: k for k, v in XP.Q_CODES.items()}.get(q)
+        if code:
+            self.win.cfg["ch_quality"][self._ckey()] = code
+        self._failed.discard(self._variants[i]["url"])
+        self._vidx = i
+        self._gave_up = False
+        self.win.save()
+        self._open()
+
+    def open_tune(self):
+        if self.tune is None:
+            self.tune = TuneDialog(self.win)
+        self.tune.sync()
+        self.tune.show()
+        self.tune.raise_()
+
+    def toggle_diag(self):
+        self.diag.setVisible(not self.diag.isVisible())
+        if self.diag.isVisible() and self.mp:
+            self._update_diag(self.mp.get_state())
+
+    def diag_data(self):
+        """Mesures du lecteur (panneau Diagnostic et administration web)."""
+        d = {"état": "arrêté"}
+        if not self.mp or not self.current:
+            return d
+        st = self.mp.get_state()
+        prof = self._profile()
+        d["état"] = {vlc.State.Playing: "lecture", vlc.State.Buffering: "mise en mémoire",
+                     vlc.State.Opening: "ouverture", vlc.State.Paused: "pause", vlc.State.Error: "erreur",
+                     vlc.State.Ended: "terminé", vlc.State.Stopped: "arrêté"}.get(st, str(st))
+        d["chaîne"] = self.current.get("_title") or self.current.get("name")
+        try:
+            w, h = self.mp.video_get_size(0)
+            d["résolution"] = f"{w} × {h}" if w else "—"
+        except Exception:
+            d["résolution"] = "—"
+        v = self._variants[self._vidx] if self._variants else {}
+        d["qualité"] = (XP.Q_LABELS.get(v.get("q")) or "standard") + \
+            (f"  (disponibles : {' / '.join(dict.fromkeys(XP.Q_LABELS.get(x['q']) or 'std' for x in self._variants))})"
+             if len(self._variants) > 1 else "")
+        vc = ac = "—"
+        try:
+            for t in self.mp.get_media().tracks_get() or []:
+                four = bytes((t.codec >> (8 * i)) & 0xFF for i in range(4)).decode("latin-1").strip(" \0")
+                if t.type == vlc.TrackType.video:
+                    vc = four
+                elif t.type == vlc.TrackType.audio and ac == "—":
+                    ac = four
+        except Exception:
+            pass
+        d["codecs"] = f"vidéo {vc} · audio {ac}"
+        fps = self.mp.get_fps() or 0
+        d["images/s"] = f"{fps:.2f}" if fps else "—"
+        d["débit"] = f"{self._rate * 8 / 1e6:.2f} Mbit/s" if self._rate else "—"
+        bw = self.win.cfg.get("bw_peak") or 0
+        d["connexion (pointe)"] = f"{bw * 8 / 1e6:.1f} Mbit/s" if bw else "—"
+        cache = prof["live_cache"] if self.current.get("kind") == "live" else prof["vod_cache"]
+        d["mémoire tampon"] = f"{cache:g} s (profil {prof['mode']})"
+        d["latence de zapping"] = f"{self._zap_ms} ms" if self._zap_ms is not None else "…"
+        try:
+            stt = vlc.MediaStats()
+            if self.mp.get_media().get_stats(stt):
+                d["images perdues"] = f"{stt.lost_pictures} / {stt.displayed_pictures + stt.lost_pictures}"
+        except Exception:
+            pass
+        cpu, ram = self.usage.sample()
+        d["processeur"] = f"{cpu:.0f} %" if cpu is not None else "…"
+        d["mémoire"] = f"{ram:.0f} Mo"
+        d["coupures / reconnexions"] = f"{self._stalls} / {self._reconnects}"
+        row = self.win.stats.row(self._url or "")
+        d["flux"] = (f"{self._vidx + 1}/{len(self._variants) or 1} · {urllib.parse.urlparse(self._url or '').netloc}"
+                     f" · fiabilité {row[0]} ok / {row[1]} échecs / {row[2]} coupures")
+        if self._failed:
+            d["flux en échec"] = str(len(self._failed))
+        if self.display.changed:
+            d["écran"] = "fréquence adaptée au flux"
+        return d
+
+    def _update_diag(self, _st=None):
+        rows = "".join(f"<tr><td style='color:#8b91a3;padding-right:10px'>{html.escape(k)}</td>"
+                       f"<td>{html.escape(str(v))}</td></tr>" for k, v in self.diag_data().items())
+        self.diag.setText(f"<b style='font-size:11pt'>📊 Diagnostic</b><br><br><table>{rows}</table>")
+
+
+class TuneDialog(QtWidgets.QDialog):
+    """Réglages image et son appliqués en direct pendant la lecture."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+        self.setWindowTitle("Image et son")
+        self.setMinimumWidth(int(460 * UI.k))
+        lay = QtWidgets.QFormLayout(self)
+        self.w = {}
+        for key in ("brightness", "contrast", "saturation", "sharpness"):
+            sl = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+            lo, hi = XP.SETTING_KEYS[key][5]
+            sl.setRange(lo, hi)
+            sl.valueChanged.connect(lambda v, k=key: self._set(k, v))
+            self.w[key] = sl
+            lay.addRow(XP.SETTING_KEYS[key][2], sl)
+        for key in ("aspect", "deinterlace", "hdr", "refresh"):
+            cb = QtWidgets.QComboBox()
+            for code, lab in XP.SETTING_KEYS[key][5]:
+                cb.addItem(lab, code)
+            cb.currentIndexChanged.connect(lambda _i, k=key, c=cb: self._set(k, c.currentData()))
+            self.w[key] = cb
+            lay.addRow(XP.SETTING_KEYS[key][2], cb)
+        sp = QtWidgets.QSpinBox()
+        sp.setRange(-2000, 2000)
+        sp.setSingleStep(50)
+        sp.setSuffix(" ms")
+        sp.valueChanged.connect(lambda v: self._set("av_delay", v))
+        self.w["av_delay"] = sp
+        lay.addRow("Décalage du son", sp)
+        ck = QtWidgets.QCheckBox("Normaliser le volume")
+        ck.toggled.connect(lambda v: self._set("normalize", v))
+        self.w["normalize"] = ck
+        lay.addRow("", ck)
+        lay.addRow(label("Netteté, normalisation et HDR s'appliquent dès la chaîne suivante pour les films.",
+                         "meta", wrap=True))
+        bb = QtWidgets.QHBoxLayout()
+        bb.addWidget(button("Réinitialiser", "secondary", self._reset))
+        bb.addStretch(1)
+        bb.addWidget(button("Fermer", "primary", self.close))
+        lay.addRow(bb)
+        self._loading = False
+
+    def sync(self):
+        self._loading = True
+        p = self.win.pset
+        for k, w in self.w.items():
+            if isinstance(w, QtWidgets.QSlider) or isinstance(w, QtWidgets.QSpinBox):
+                w.setValue(int(p.get(k, 0)))
+            elif isinstance(w, QtWidgets.QComboBox):
+                w.setCurrentIndex(max(0, w.findData(p.get(k))))
+            elif isinstance(w, QtWidgets.QCheckBox):
+                w.setChecked(bool(p.get(k)))
+        self._loading = False
+
+    def _set(self, key, value):
+        if not self._loading:
+            self.win.set_setting(key, value)
+
+    def _reset(self):
+        for k in self.w:
+            self.win.pset[k] = XP.SETTING_KEYS[k][4] if k in XP.SETTING_KEYS else 0
+        self.win.save()
+        self.sync()
+        self.win.player._apply_runtime()
+
 # --------------------------------------------------------------------------- #
 #  Bibliothèque & métadonnées
 # --------------------------------------------------------------------------- #
@@ -5586,8 +6761,11 @@ class Library:
                 it["sub"] = " · ".join(x for x in (it["_year"], pretty_group(it["group"])) if x)
                 self.titles[it["kind"]].setdefault(title_key(t), []).append(it)
             else:
-                it["_title"] = strip_lead_tags(it["name"]) or it["name"]
-                it["_q"] = norm(it["name"])
+                if len(it.get("variants") or ()) > 1:
+                    it["_title"] = XP.display_name(it["name"])
+                else:
+                    it["_title"] = strip_lead_tags(it["name"]) or it["name"]
+                it["_q"] = norm(it["name"] + " " + it["_title"])
                 it["sub"] = ""
             self.by_kind.setdefault(it["kind"], []).append(it)
 
@@ -6895,6 +8073,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setAcceptDrops(True)
         self.resize(1560, 920)
         self.cfg = load_config()
+        self.stats = XP.StreamStats(self.cfg["stream_stats"])
+        self.cores, self.ram_mb, self.hw_tier = XP.hardware()
+        self.guides = {}                 # guides TV XMLTV chargés, par source
+        self._guide_loading = set()
+        self.app_log = []
+        self.admin = None
         self.downloads = DownloadManager(self)
         self.profile = None
         self.favorites = set()
@@ -6907,6 +8091,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._fs = False
         self.history = []
         self._dirty = False
+        self.maint = Maintenance(self)
         self._build()
         self._save_timer = QtCore.QTimer(self, interval=20000)
         self._save_timer.timeout.connect(lambda: self._dirty and self.save())
@@ -6921,6 +8106,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.show_profiles()
         self._reload_sources()
         QtCore.QTimer.singleShot(300, lambda: None if self.cfg["sources"] else self.add_source())
+        self.maint.start()
+        if self.cfg["admin"].get("enabled"):
+            QtCore.QTimer.singleShot(1500, lambda: self.set_admin(True, quiet=True))
 
     # ------------------------------------------------------------ profils
     @property
@@ -7183,6 +8371,7 @@ class MainWindow(QtWidgets.QMainWindow):
         sc("PgUp", lambda: self._in_player() and self.player.prev())
         sc("PgDown", lambda: self._in_player() and self.player.next())
         sc("N", lambda: self._in_player() and self.player.next())
+        sc("I", lambda: self._in_player() and self.player.toggle_diag())
         self._chrome_on = True
         self._apply_chrome()
         self._update_avatar()
@@ -7525,6 +8714,11 @@ class MainWindow(QtWidgets.QMainWindow):
                       busy=f"Chargement de « {src['name']} »…")
 
     def _fetched(self, src, data):
+        if data.get("epg_url") and data["epg_url"] != src.get("epg_auto"):
+            src["epg_auto"] = data["epg_url"]
+            self.guides.pop(src["id"], None)
+            self._dirty = True
+        src["updated_ts"] = int(time.time())
         try:
             with open(cache_path(src["id"]), "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
@@ -7542,7 +8736,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._raw = (items, info)
         if (self.profile or {}).get("kids"):
             items = [i for i in items if not ADULT_RE.search(f"{i['group']} {i['name']}")]
+        hidden = set(self.cfg.get("hidden_groups") or [])
+        if hidden:
+            items = [i for i in items if i["group"] not in hidden]
+        if self.pset.get("dedupe", True):
+            items = XP.group_variants(items)
         self.lib.set_items(items)
+        self._remap_saved()
         c = Counter(i["kind"] for i in items)
         self.source_combo.setToolTip(info)
         for k in ("live", "movie", "series"):
@@ -7607,13 +8807,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def dropEvent(self, e):
         self.open_playlist_files([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()])
 
-    def delete_source(self, sid):
+    def delete_source(self, sid, confirm=True):
         src = self._source_by_id(sid)
         if not src:
             return
-        r = QtWidgets.QMessageBox.question(self, APP_TITLE, f"Supprimer la source « {src['name']} » ?")
-        if r != QtWidgets.QMessageBox.StandardButton.Yes:
-            return
+        if confirm:
+            r = QtWidgets.QMessageBox.question(self, APP_TITLE, f"Supprimer la source « {src['name']} » ?")
+            if r != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
         self.cfg["sources"] = [s for s in self.cfg["sources"] if s["id"] != sid]
         for f in (cache_path(sid), os.path.join(PLAYLIST_DIR, sid + ".m3u")):
             try:
@@ -7626,12 +8827,124 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save()
         self._reload_sources()
 
+    def has_epg(self, item):
+        src = self.current_source or {}
+        if src.get("type") == "xtream" and item.get("stream_id"):
+            return True
+        return bool(self.epg_url(src))
+
+    def epg_url(self, src):
+        """Adresse du guide TV : choisie par l'utilisateur, sinon celle annoncée par la liste M3U."""
+        if not src:
+            return ""
+        return src.get("epg") or src.get("epg_auto") or ""
+
     def fetch_epg(self, item, cb):
         src = self.current_source
-        if not src or src["type"] != "xtream":
+        if not src:
             return
-        self.run_task(lambda: xtream_client(src).short_epg(item["stream_id"]),
-                      lambda progs, it=item: cb(it, progs), lambda _e: None, quiet=True)
+        if src["type"] == "xtream" and item.get("stream_id") and not src.get("epg"):
+            self.run_task(lambda: xtream_client(src).short_epg(item["stream_id"]),
+                          lambda progs, it=item: cb(it, progs), lambda _e: None, quiet=True)
+            return
+        guide = self.guides.get(src["id"])
+        if guide is not None:
+            progs = XP.epg_for(guide, item)
+            if progs:
+                QtCore.QTimer.singleShot(0, lambda: safe_call(cb, item, progs))
+            return
+        self.load_guide(src, lambda: self.fetch_epg(item, cb) if self.guides.get(src["id"]) else None)
+
+    def load_guide(self, src, then=None, force=False):
+        """Guide TV XMLTV : en cache 12 h (dossier epg), téléchargé en arrière-plan sinon."""
+        url = self.epg_url(src)
+        if not url:
+            return
+        path = os.path.join(DATA_DIR, "epg", src["id"] + ".json")
+        if not force and src["id"] not in self.guides and os.path.exists(path) and \
+                time.time() - os.path.getmtime(path) < 12 * 3600:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    self.guides[src["id"]] = json.load(f)
+                if then:
+                    then()
+                return
+            except (OSError, ValueError):
+                pass
+        if src["id"] in self._guide_loading:
+            return
+        self._guide_loading.add(src["id"])
+
+        def work():
+            g = XP.parse_xmltv(http_get(url, timeout=180))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(g, f, ensure_ascii=False)
+            return g
+
+        def done(g, sid=src["id"]):
+            self._guide_loading.discard(sid)
+            self.guides[sid] = g
+            self.log(f"Guide TV chargé : {len(g.get('progs') or {})} chaînes")
+            if then:
+                then()
+
+        def fail(e, sid=src["id"]):
+            self._guide_loading.discard(sid)
+            self.guides[sid] = {}
+            self.log(f"Guide TV indisponible : {e}")
+        self.run_task(work, done, fail, quiet=True)
+
+    # ---------------------------------------------------------- réglages avancés
+    @property
+    def pset(self):
+        return self.cfg["player"]
+
+    def set_setting(self, key, value):
+        v = XP.coerce_setting(key, value)
+        old = self.pset.get(key)
+        self.pset[key] = v
+        self._dirty = True
+        self.save()
+        if key in ("dedupe",) and old != v:
+            self._apply_library(*self._raw)
+        self.player.apply_setting(key)
+        return v
+
+    def log(self, msg):
+        self.app_log.append(f"{datetime.now():%d/%m %H:%M:%S}  {msg}")
+        del self.app_log[:-400]
+
+    def _remap_saved(self):
+        """Favoris et historique dont le lien a changé à l'actualisation : retrouvés par nom de chaîne / titre."""
+        if not self.lib.items:
+            return
+        km = self.cfg.setdefault("fav_keys", {})
+        for u in list(self.favorites):
+            if u not in km and u in self.lib.by_url:
+                k = XP.stable_key(self.lib.by_url[u])
+                if k:
+                    km[u] = k
+        favs, newmap, n = XP.remap_urls(sorted(self.favorites), km, self.lib.items)
+        if n:
+            self.favorites = set(favs)
+            self.cfg["fav_keys"] = {**km, **newmap}
+            self.log(f"{n} favori(s) retrouvé(s) après l'actualisation de la liste")
+            self._dirty = True
+        # liens vers les variantes : un favori sur « TF1 HD » pointe vers la chaîne regroupée
+        alias = {}
+        for it in self.lib.by_kind.get("live") or []:
+            for v in it.get("variants") or []:
+                if v["url"] != it["url"]:
+                    alias[v["url"]] = it["url"]
+        if alias:
+            moved = {alias[u] for u in self.favorites if u in alias}
+            if moved:
+                self.favorites = {u for u in self.favorites if u not in alias} | moved
+                self._dirty = True
+            h = self.pdata["live_hist"]
+            for u in [u for u in h if u in alias]:
+                h[alias[u]] = h.get(alias[u], 0) + h.pop(u)
 
     # --------------------------------------------------------- tendances
     def trending_channels(self, n):
@@ -7662,6 +8975,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def category_items(self, kind, n, special=False):
         pool = self.lib.by_kind.get(kind) or []
         counts = Counter(i["group"] for i in pool)
+        order = {g: i for i, g in enumerate(self.cfg.get("group_order") or [])}
+        if order:
+            counts = Counter(dict(sorted(counts.items(), key=lambda kv: (order.get(kv[0], 10 ** 6), -kv[1]))))
         first_img = {}
         for i in pool:
             if i.get("logo") and i["group"] not in first_img:
@@ -7695,6 +9011,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.toast("Retiré de Ma liste")
         else:
             self.favorites.add(it["url"])
+            k = XP.stable_key(self.lib.by_url.get(it["url"]) or it)
+            if k:
+                self.cfg["fav_keys"][it["url"]] = k
             self.toast("Ajouté à Ma liste ♥")
         self.save()
 
@@ -7770,7 +9089,31 @@ class MainWindow(QtWidgets.QMainWindow):
             self.toast_l.move((self.width() - self.toast_l.width()) // 2,
                               self.height() - self.toast_l.height() - 40)
 
+    def set_admin(self, on, quiet=False):
+        """Démarre / arrête l'administration web."""
+        adm = self.cfg["admin"]
+        if on:
+            if not self.admin:
+                self.admin = XP.AdminServer(AdminApi(self), asset("admin.html"), int(adm.get("port", 8080)), adm["pin"])
+            try:
+                self.admin.pin = adm["pin"]
+                port = self.admin.start()
+                adm["enabled"] = True
+                adm["port"] = port
+                self.log(f"Administration web : {self.admin.urls()[0]}")
+            except OSError as e:
+                adm["enabled"] = False
+                if not quiet:
+                    QtWidgets.QMessageBox.warning(self, APP_TITLE, f"Impossible de démarrer l'administration web :\n{e}")
+        else:
+            if self.admin:
+                self.admin.stop()
+            adm["enabled"] = False
+        self.save()
+
     def closeEvent(self, e):
+        if self.admin:
+            self.admin.stop()
         self.player.shutdown()
         self.downloads.shutdown()
         BUFFER.close_all()

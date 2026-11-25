@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IPTV Player — Administration</title>
+<style>
+:root{--bg:#040506;--panel:#10141b;--panel2:#161b24;--line:#232a36;--text:#e8eaf0;--muted:#8b91a3;--accent:#2e8bff;--red:#e8252c;--ok:#3fbf6f;--warn:#f0b429}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+button,input,select{font:inherit;color:inherit}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:8px 16px;cursor:pointer}
+button:hover{border-color:#3a4456}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger{color:#ff7b7b}
+button.small{padding:4px 11px;font-size:13px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #fff;outline-offset:2px}
+input,select{background:#0b0e14;border:1px solid var(--line);border-radius:10px;padding:8px 10px;width:100%}
+input[type=checkbox]{width:auto;accent-color:var(--accent);transform:scale(1.2)}
+input[type=range]{padding:0;accent-color:var(--accent)}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(4,5,6,.94);backdrop-filter:blur(8px);z-index:5}
+header h1{font-size:18px;margin:0;font-weight:700}
+header .sub{color:var(--muted);font-size:13px}
+header .sp{flex:1}
+nav{display:flex;gap:6px;padding:12px 22px;overflow-x:auto;border-bottom:1px solid var(--line)}
+nav button{white-space:nowrap;border:0;background:transparent;color:var(--muted)}
+nav button.on{background:var(--panel2);color:#fff}
+main{max-width:1100px;margin:0 auto;padding:22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}
+.card h2{font-size:16px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--panel2);border-radius:12px;padding:12px}
+.stat b{display:block;font-size:22px}
+.stat span{color:var(--muted);font-size:13px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row>*{flex:0 0 auto}
+.grow{flex:1 1 220px!important}
+.muted{color:var(--muted)}
+.list{display:flex;flex-direction:column;gap:8px}
+.item{display:flex;gap:12px;align-items:center;background:var(--panel2);border-radius:12px;padding:10px 12px;flex-wrap:wrap}
+.item .t{flex:1 1 200px;min-width:0}
+.item .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item img{width:44px;height:44px;object-fit:contain;border-radius:8px;background:#0b0e14}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:#1f2633;color:#c9d1e0;margin-right:4px}
+.tag.ok{background:#173a26;color:#8ee3ad}.tag.bad{background:#3d1517;color:#ff9a9a}.tag.cur{background:var(--accent);color:#fff}
+.drop{border:2px dashed var(--accent);border-radius:16px;padding:26px;text-align:center;cursor:pointer;color:#cfd5e2}
+.drop.over{background:#10233f}
+.form{display:grid;grid-template-columns:minmax(200px,1fr) minmax(160px,1.2fr);gap:10px 18px;align-items:center}
+.form h3{grid-column:1/-1;margin:14px 0 2px;font-size:15px;color:#fff}
+.form label{color:#cfd5e2}
+pre{white-space:pre-wrap;background:#0b0e14;border-radius:12px;padding:12px;max-height:60vh;overflow:auto;font:12.5px/1.5 ui-monospace,Consolas,monospace;color:#cfd5e2}
+#login{max-width:380px;margin:12vh auto;text-align:center}
+#login input{text-align:center;font-size:28px;letter-spacing:10px;margin:16px 0}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1c2330;border:1px solid var(--line);padding:10px 18px;border-radius:999px;display:none;z-index:9;max-width:90vw}
+.hide{display:none!important}
+@media (max-width:640px){header{padding:12px 16px}nav,main{padding-left:16px;padding-right:16px}.form{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="login" class="card">
+  <h1 style="margin:0 0 6px">IPTV Player</h1>
+  <div class="muted">Administration — saisissez le code PIN affiché dans l'application<br>(Paramètres → Administration depuis un navigateur).</div>
+  <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••">
+  <button class="primary" id="go" style="width:100%">Se connecter</button>
+  <div id="lerr" style="color:#ff8a8a;margin-top:12px"></div>
+</div>
+
+<div id="app" class="hide">
+<header>
+  <div><h1>IPTV Player <span class="muted" id="ver"></span></h1><div class="sub" id="who"></div></div>
+  <div class="sp"></div>
+  <button class="small" id="logout">Déconnexion</button>
+</header>
+<nav id="tabs">
+  <button data-t="dash" class="on">Tableau de bord</button>
+  <button data-t="lists">Listes</button>
+  <button data-t="chans">Chaînes et catégories</button>
+  <button data-t="favs">Favoris</button>
+  <button data-t="settings">Réglages</button>
+  <button data-t="logs">Journal</button>
+  <button data-t="backup">Sauvegarde</button>
+</nav>
+<main>
+<section id="t-dash">
+  <div class="card"><h2>Bibliothèque</h2><div class="grid" id="stats"></div></div>
+  <div class="card"><h2>Lecture en cours</h2><div id="diag" class="muted">—</div></div>
+  <div class="card"><h2>Appareil</h2><div id="hw" class="muted"></div></div>
+</section>
+
+<section id="t-lists" class="hide">
+  <div class="card"><h2>Mes listes</h2><div class="list" id="srcs"></div></div>
+  <div class="card"><h2>Importer un fichier M3U / M3U8</h2>
+    <label class="drop" id="drop">📄 Glissez-déposez le fichier ici, ou cliquez pour le choisir<input type="file" id="file" accept=".m3u,.m3u8,.txt" class="hide"></label>
+    <div id="upst" class="muted" style="margin-top:10px"></div>
+  </div>
+  <div class="card"><h2>Ajouter une liste depuis une URL</h2>
+    <div class="row"><input class="grow" id="u_url" placeholder="https://…/playlist.m3u (ou lien get.php?username=…)"><input class="grow" id="u_name" placeholder="Nom (facultatif)"></div>
+    <div class="row" style="margin-top:10px"><input class="grow" id="u_epg" placeholder="Guide TV XMLTV (facultatif) : https://…/epg.xml.gz"><button class="primary" id="u_add">Ajouter</button></div>
+  </div>
+  <div class="card"><h2>Ajouter un compte Xtream Codes</h2>
+    <div class="row"><input class="grow" id="x_srv" placeholder="Serveur : http://serveur:8080"><input class="grow" id="x_user" placeholder="Identifiant"><input class="grow" id="x_pass" type="password" placeholder="Mot de passe"></div>
+    <div class="row" style="margin-top:10px"><input class="grow" id="x_name" placeholder="Nom (facultatif)"><button class="primary" id="x_add">Ajouter</button></div>
+  </div>
+</section>
+
+<section id="t-chans" class="hide">
+  <div class="card"><h2>Doublons</h2>
+    <div class="row"><label class="row"><input type="checkbox" id="dedupe"> Regrouper les chaînes en double (SD, HD, FHD, 4K) en une seule chaîne</label></div>
+    <div class="muted" id="dedupest" style="margin-top:8px"></div>
+  </div>
+  <div class="card"><h2>Catégories</h2>
+    <div class="muted" style="margin-bottom:10px">Décochez pour masquer une catégorie ; ↑ ↓ pour changer l'ordre d'affichage.</div>
+    <div class="row" style="margin-bottom:10px"><input class="grow" id="catq" placeholder="Filtrer les catégories…"><button id="catsave" class="primary">Enregistrer</button></div>
+    <div class="list" id="cats"></div>
+  </div>
+  <div class="card"><h2>Chaînes <span class="muted" id="chtitle"></span></h2>
+    <div class="row" style="margin-bottom:10px"><input class="grow" id="chq" placeholder="Rechercher une chaîne…"><button id="chcheck">🩺 Vérifier cette catégorie</button></div>
+    <div class="list" id="chans"></div>
+  </div>
+</section>
+
+<section id="t-favs" class="hide">
+  <div class="card"><h2>Favoris</h2>
+    <div class="row" style="margin-bottom:10px"><button id="favcheck">🩺 Vérifier mes favoris</button></div>
+    <div class="list" id="favs"></div></div>
+</section>
+
+<section id="t-settings" class="hide">
+  <div class="card"><div class="form" id="form"></div>
+    <div class="row" style="margin-top:16px"><button class="primary" id="ssave">Enregistrer les réglages</button><button id="sreset" class="danger">Réglages par défaut</button></div>
+  </div>
+</section>
+
+<section id="t-logs" class="hide">
+  <div class="card"><div class="row" style="margin-bottom:10px"><button id="lref">Actualiser</button></div><pre id="logs"></pre></div>
+</section>
+
+<section id="t-backup" class="hide">
+  <div class="card"><h2>Sauvegarder</h2><div class="muted" style="margin-bottom:10px">Listes, profils, favoris, réglages, catégories : tout dans un fichier.</div><button class="primary" id="bdl">⬇ Télécharger la sauvegarde</button></div>
+  <div class="card"><h2>Restaurer</h2><div class="muted" style="margin-bottom:10px">Remplace la configuration actuelle (une copie de sécurité est faite avant).</div><label class="drop" id="rdrop">📂 Choisir un fichier de sauvegarde (.json)<input type="file" id="rfile" accept=".json,application/json" class="hide"></label></div>
+  <div class="card"><h2>Maintenance</h2><div class="row">
+    <button data-m="refresh_all">⟳ Actualiser toutes les listes</button>
+    <button data-m="clear_cache">🧹 Nettoyer le cache</button>
+    <button data-m="backup_now">💾 Sauvegarde automatique maintenant</button>
+  </div></div>
+</section>
+</main>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+let TOKEN = sessionStorage.getItem("iptv_token") || "";
+let STATE = null, CATS = [], CUR_GROUP = "";
+
+function toast(t, bad){const e=$("#toast");e.textContent=t;e.style.display="block";e.style.color=bad?"#ff9a9a":"";clearTimeout(e._t);e._t=setTimeout(()=>e.style.display="none",3500);}
+async function api(path, body, raw){
+  const opt = {method: body===undefined ? "GET" : "POST", headers:{"X-Token":TOKEN}};
+  if (body!==undefined){ if (raw){opt.body=body; Object.assign(opt.headers, raw);} else {opt.body=JSON.stringify(body); opt.headers["Content-Type"]="application/json";} }
+  const r = await fetch("/api/"+path, opt);
+  if (r.status===401 && path!=="login"){ logout(); throw new Error("Connexion requise"); }
+  const ct = r.headers.get("Content-Type")||"";
+  const data = ct.includes("json") ? await r.json() : await r.text();
+  if (!r.ok) throw new Error((data && data.error) || ("Erreur "+r.status));
+  return data;
+}
+async function login(){
+  $("#lerr").textContent="";
+  try{
+    const r = await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin:$("#pin").value.trim()})});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error||"Refusé");
+    TOKEN=d.token; sessionStorage.setItem("iptv_token",TOKEN); start();
+  }catch(e){$("#lerr").textContent=e.message;}
+}
+function logout(){TOKEN="";sessionStorage.removeItem("iptv_token");$("#app").classList.add("hide");$("#login").classList.remove("hide");}
+$("#go").onclick=login; $("#pin").onkeydown=e=>{if(e.key==="Enter")login();};
+$("#logout").onclick=logout;
+
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x===b));
+  document.querySelectorAll("main section").forEach(s=>s.classList.toggle("hide",s.id!=="t-"+b.dataset.t));
+  ({dash:loadDash,lists:loadState,chans:loadCats,favs:loadFavs,settings:loadSettings,logs:loadLogs})[b.dataset.t]?.();
+});
+
+async function start(){
+  $("#login").classList.add("hide"); $("#app").classList.remove("hide");
+  await loadState(); loadDash();
+}
+async function loadState(){
+  STATE = await api("state");
+  $("#ver").textContent=STATE.version; $("#who").textContent=`${STATE.platform} · profil ${STATE.profile||"—"}`;
+  const c=STATE.counts;
+  $("#stats").innerHTML=[["Chaînes",c.live],["Films",c.movie],["Séries",c.series],["Favoris",STATE.favorites],["Listes",STATE.sources.length]]
+    .map(([l,n])=>`<div class="stat"><b>${(n||0).toLocaleString("fr-FR")}</b><span>${l}</span></div>`).join("");
+  const hw=STATE.hardware; $("#hw").textContent=`${hw.cores} cœurs · ${(hw.ram_mb/1024).toFixed(1)} Go · niveau ${({low:"économique",mid:"standard",high:"puissant"})[hw.tier]||hw.tier}`;
+  $("#srcs").innerHTML = STATE.sources.map(s=>`<div class="item"><div class="t"><b>${s.type==="xtream"?"📡":"📄"} ${esc(s.name)} ${s.current?'<span class="tag cur">en cours</span>':""}</b>
+     <span class="muted">${s.type==="xtream"?"Compte Xtream · "+esc(s.server):s.file?"Fichier · "+esc(s.file):"Lien · "+esc(s.url)}${s.updated?" · mise à jour "+new Date(s.updated*1000).toLocaleString("fr-FR"):""}</span><br>
+     <span class="muted">Guide TV : ${esc(s.epg||s.epg_auto||"celui du fournisseur")}</span></div>
+     <div class="row">${s.current?"":`<button class="small" data-a="select" data-id="${s.id}">Utiliser</button>`}
+     <button class="small" data-a="refresh" data-id="${s.id}">⟳ Actualiser</button>
+     <button class="small" data-a="rename" data-id="${s.id}">Renommer</button>
+     <button class="small" data-a="epg" data-id="${s.id}">Guide TV</button>
+     <button class="small danger" data-a="delete" data-id="${s.id}">Supprimer</button></div></div>`).join("") || '<div class="muted">Aucune liste.</div>';
+  const dd=$("#dedupe"); const st=STATE.settings.find(x=>x.key==="dedupe"); if(st) dd.checked=!!st.value;
+  $("#dedupest").textContent = c.live_raw ? `${c.live_raw.toLocaleString("fr-FR")} flux → ${c.live.toLocaleString("fr-FR")} chaînes affichées` : "";
+}
+$("#srcs").onclick=async e=>{
+  const b=e.target.closest("button[data-a]"); if(!b) return;
+  const id=b.dataset.id, a=b.dataset.a, body={id};
+  if(a==="delete" && !confirm("Supprimer cette liste ?")) return;
+  if(a==="rename"){const n=prompt("Nouveau nom :"); if(!n) return; body.name=n;}
+  if(a==="epg"){const u=prompt("Adresse du guide TV XMLTV (vide = celui du fournisseur) :", (STATE.sources.find(s=>s.id===id)||{}).epg||""); if(u===null) return; body.url=u;}
+  try{await api("sources/"+a, body); toast("C'est fait ✓"); setTimeout(loadState, a==="refresh"?1500:300);}catch(err){toast(err.message,true);}
+};
+async function loadDash(){
+  try{ const d=await api("diag"); $("#diag").innerHTML = Object.keys(d).length>1 ? "<table>"+Object.entries(d).map(([k,v])=>`<tr><td class="muted" style="padding-right:14px">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")+"</table>" : "Aucune lecture en cours."; }catch(e){}
+}
+setInterval(()=>{ if(!$("#t-dash").classList.contains("hide") && TOKEN) loadDash(); }, 3000);
+
+// ---- import de fichier
+async function upload(file){
+  if(!file) return;
+  $("#upst").textContent=`Envoi de « ${file.name} »…`;
+  try{ const r=await api("upload", file, {"X-Name":encodeURIComponent(file.name)}); $("#upst").textContent=`✓ ${file.name} importé (${r.entries} entrées)`; loadState(); }
+  catch(e){ $("#upst").textContent="⚠ "+e.message; }
+}
+function dropZone(zone, input, fn){
+  input.onchange=()=>fn(input.files[0]);
+  ["dragover","dragenter"].forEach(n=>zone.addEventListener(n,e=>{e.preventDefault();zone.classList.add("over");}));
+  ["dragleave","drop"].forEach(n=>zone.addEventListener(n,e=>{e.preventDefault();zone.classList.remove("over");}));
+  zone.addEventListener("drop",e=>fn(e.dataTransfer.files[0]));
+}
+dropZone($("#drop"),$("#file"),upload);
+$("#u_add").onclick=async()=>{try{await api("sources/add",{type:"m3u",url:$("#u_url").value.trim(),name:$("#u_name").value.trim(),epg:$("#u_epg").value.trim()});toast("Liste ajoutée ✓");$("#u_url").value="";loadState();}catch(e){toast(e.message,true);}};
+$("#x_add").onclick=async()=>{try{await api("sources/add",{type:"xtream",server:$("#x_srv").value.trim(),user:$("#x_user").value.trim(),password:$("#x_pass").value,name:$("#x_name").value.trim()});toast("Compte ajouté ✓");$("#x_pass").value="";loadState();}catch(e){toast(e.message,true);}};
+
+// ---- catégories et chaînes
+async function loadCats(){
+  if(!STATE) await loadState();
+  CATS = await api("categories?kind=live"); renderCats();
+}
+function renderCats(){
+  const q=$("#catq").value.toLowerCase();
+  $("#cats").innerHTML = CATS.map((c,i)=>(!q||c.name.toLowerCase().includes(q))?`<div class="item"><input type="checkbox" data-i="${i}" ${c.hidden?"":"checked"} title="Afficher"><div class="t"><b>${esc(c.name)}</b><span class="muted">${c.count} flux${c.country?" · "+esc(c.country):""}</span></div>
+   <div class="row"><button class="small" data-up="${i}">↑</button><button class="small" data-down="${i}">↓</button><button class="small" data-open="${i}">Voir</button></div></div>`:"").join("") || '<div class="muted">Aucune catégorie.</div>';
+}
+$("#catq").oninput=renderCats;
+$("#cats").onclick=e=>{
+  const t=e.target;
+  if(t.matches("input[type=checkbox]")){CATS[+t.dataset.i].hidden=!t.checked;return;}
+  if(t.dataset.up!==undefined){const i=+t.dataset.up;if(i>0){[CATS[i-1],CATS[i]]=[CATS[i],CATS[i-1]];renderCats();}}
+  if(t.dataset.down!==undefined){const i=+t.dataset.down;if(i<CATS.length-1){[CATS[i+1],CATS[i]]=[CATS[i],CATS[i+1]];renderCats();}}
+  if(t.dataset.open!==undefined){CUR_GROUP=CATS[+t.dataset.open].group;$("#chtitle").textContent="· "+CATS[+t.dataset.open].name;loadChans();}
+};
+$("#catsave").onclick=async()=>{try{await api("categories",{hidden:CATS.filter(c=>c.hidden).map(c=>c.group),order:CATS.map(c=>c.group)});toast("Catégories enregistrées ✓");loadState();}catch(e){toast(e.message,true);}};
+$("#dedupe").onchange=async e=>{try{await api("settings",{dedupe:e.target.checked});toast("Enregistré ✓");setTimeout(loadState,600);}catch(err){toast(err.message,true);}};
+function chanRow(c){
+  return `<div class="item">${c.logo?`<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:""}<div class="t"><b>${esc(c.name)}</b>
+   <span class="muted">${esc(c.group)}</span> ${c.qualities?`<span class="tag">${esc(c.qualities)}</span>`:""}${c.variants>1?`<span class="tag">${c.variants} flux</span>`:""}
+   ${c.dead?'<span class="tag bad">indisponible</span>':c.ok?'<span class="tag ok">fonctionne</span>':""}</div>
+   <button class="small" data-fav="${esc(c.url)}" data-on="${c.fav?0:1}">${c.fav?"♥ Retirer":"♡ Favori"}</button></div>`;
+}
+let chT=null; $("#chq").oninput=()=>{clearTimeout(chT);chT=setTimeout(loadChans,300);};
+async function loadChans(){
+  const q=encodeURIComponent($("#chq").value.trim());
+  const rows=await api(`channels?group=${encodeURIComponent(CUR_GROUP)}&q=${q}&limit=300`);
+  $("#chans").innerHTML=rows.map(chanRow).join("")||'<div class="muted">Aucune chaîne.</div>';
+}
+async function favClick(e){const b=e.target.closest("button[data-fav]");if(!b)return;try{await api("favorites",{url:b.dataset.fav,on:b.dataset.on==="1"});toast("C'est fait ✓");if($("#t-favs").classList.contains("hide"))loadChans();else loadFavs();}catch(err){toast(err.message,true);}}
+$("#chans").onclick=favClick; $("#favs").onclick=favClick;
+$("#chcheck").onclick=async()=>{if(!CUR_GROUP){toast("Choisissez d'abord une catégorie (Voir).",true);return;}try{await api("maintenance",{action:"check_group",group:CUR_GROUP});toast("Vérification lancée — résultat dans le journal");}catch(e){toast(e.message,true);}};
+async function loadFavs(){const rows=await api("channels?favs=1&limit=1000");$("#favs").innerHTML=rows.map(chanRow).join("")||'<div class="muted">Aucune chaîne favorite.</div>';}
+$("#favcheck").onclick=async()=>{try{await api("maintenance",{action:"check_favorites"});toast("Vérification lancée — résultat dans le journal");}catch(e){toast(e.message,true);}};
+
+// ---- réglages
+async function loadSettings(){
+  STATE=await api("state"); let html="", sec="";
+  for(const s of STATE.settings){
+    if(s.section!==sec){sec=s.section;html+=`<h3>${esc(sec)}</h3>`;}
+    let input;
+    if(s.type==="bool") input=`<input type="checkbox" data-k="${s.key}" ${s.value?"checked":""}>`;
+    else if(s.type==="choice") input=`<select data-k="${s.key}">${s.choices.map(([v,l])=>`<option value="${esc(v)}" ${v===s.value?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+    else input=`<input type="number" data-k="${s.key}" value="${s.value}" min="${s.min}" max="${s.max}" step="${s.type==="float"?0.5:1}">`;
+    html+=`<label for="s_${s.key}">${esc(s.label)}</label><div>${input.replace("data-k",'id="s_'+s.key+'" data-k')}</div>`;
+  }
+  $("#form").innerHTML=html;
+}
+$("#ssave").onclick=async()=>{
+  const body={}; document.querySelectorAll("#form [data-k]").forEach(el=>{body[el.dataset.k]= el.type==="checkbox"?el.checked: el.type==="number"?Number(el.value):el.value;});
+  try{await api("settings",body);toast("Réglages enregistrés ✓");}catch(e){toast(e.message,true);}
+};
+$("#sreset").onclick=async()=>{if(!confirm("Remettre tous les réglages par défaut ?"))return;try{await api("maintenance",{action:"reset_settings"});toast("Réglages par défaut rétablis ✓");loadSettings();}catch(e){toast(e.message,true);}};
+
+// ---- journal, sauvegarde, maintenance
+async function loadLogs(){const d=await api("logs");$("#logs").textContent=d.lines.slice().reverse().join("\n")||"(vide)";}
+$("#lref").onclick=loadLogs;
+$("#bdl").onclick=async()=>{
+  try{const r=await fetch("/api/backup",{headers:{"X-Token":TOKEN}}); if(!r.ok) throw new Error("Erreur "+r.status);
+    const blob=await r.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+    a.download=`iptv-player-sauvegarde-${new Date().toISOString().slice(0,10)}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  }catch(e){toast(e.message,true);}
+};
+dropZone($("#rdrop"),$("#rfile"),async f=>{
+  if(!f) return; if(!confirm(`Restaurer « ${f.name} » ? La configuration actuelle sera remplacée.`)) return;
+  try{const cfg=JSON.parse(await f.text()); await api("restore",{config:cfg}); toast("Configuration restaurée ✓"); loadState();}catch(e){toast(e.message,true);}
+});
+document.querySelectorAll("button[data-m]").forEach(b=>b.onclick=async()=>{try{await api("maintenance",{action:b.dataset.m});toast("Lancé ✓");}catch(e){toast(e.message,true);}});
+
+if(TOKEN) start().catch(()=>logout()); else $("#pin").focus();
+</script>
+</body>
+</html>
