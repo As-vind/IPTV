@@ -14,6 +14,7 @@ import '../core/store.dart';
 import 'scope.dart';
 import 'theme.dart';
 import 'widgets.dart';
+import 'tv_field.dart';
 
 const Map<String, String> _sectionTitles = {
   'Lecture': 'Lecture et anti-coupure',
@@ -108,7 +109,6 @@ class AdvancedSettings extends StatelessWidget {
                 label: Text(lab),
                 selected: s.pset[st.key] == code,
                 showCheckmark: false,
-                labelStyle: TextStyle(color: s.pset[st.key] == code ? kBg : kText, fontWeight: FontWeight.w700),
                 onSelected: (_) => s.setSetting(st.key, code),
               ),
           ]),
@@ -326,7 +326,7 @@ Future<void> editGuide(BuildContext context, Map<String, dynamic> src) async {
             '${(src['epg_auto'] ?? '') != '' ? ' (${src['epg_auto']})' : ''} ou du compte Xtream.',
             style: const TextStyle(color: kMuted)),
         const SizedBox(height: 10),
-        TextField(controller: c, keyboardType: TextInputType.url, decoration: const InputDecoration(hintText: 'https://…/epg.xml.gz')),
+        TvTextField(controller: c, keyboardType: TextInputType.url, label: 'Guide TV (XMLTV)', hint: 'https://…/epg.xml.gz'),
       ]),
       actions: [
         TextButton(onPressed: () => Navigator.pop(d), child: const Text('Annuler')),

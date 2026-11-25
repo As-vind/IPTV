@@ -82,6 +82,38 @@ class _FocusTileState extends State<FocusTile> {
 }
 
 /// Bouton « pilule » ou rond du menu : contour blanc bien visible quand il a le focus (télécommande, clavier).
+/// Carte cliquable : contour blanc épais quand la télécommande est dessus.
+class FocusCard extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final bool autofocus;
+  const FocusCard({super.key, required this.child, this.onTap, this.autofocus = false});
+  @override
+  State<FocusCard> createState() => _FocusCardState();
+}
+
+class _FocusCardState extends State<FocusCard> {
+  bool _focus = false;
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _focus ? const Color(0xFF22324A) : Colors.white.withValues(alpha: .06),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: _focus ? const BorderSide(color: Colors.white, width: 3) : BorderSide(color: Colors.white.withValues(alpha: .12)),
+      ),
+      child: InkWell(
+        autofocus: widget.autofocus,
+        borderRadius: BorderRadius.circular(16),
+        focusColor: Colors.transparent,
+        onFocusChange: (f) => setState(() => _focus = f),
+        onTap: widget.onTap,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 class NavButton extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;

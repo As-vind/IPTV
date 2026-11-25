@@ -9,6 +9,7 @@ import 'nav.dart';
 import 'scope.dart';
 import 'theme.dart';
 import 'widgets.dart';
+import 'tv_field.dart';
 
 class BrowseView extends StatefulWidget {
   final String kind;
@@ -23,12 +24,19 @@ class _BrowseViewState extends State<BrowseView> {
   String _country = '*';
   String _group = '*';
   String _q = '';
+  final _filterC = TextEditingController();
   int _sort = 0; // 0 fournisseur, 1 A→Z, 2 récents, 3 notes
 
   @override
   void initState() {
     super.initState();
     if (widget.initialGroup != null) _group = widget.initialGroup!;
+  }
+
+  @override
+  void dispose() {
+    _filterC.dispose();
+    super.dispose();
   }
 
   List<Item> _filtered(AppState s) {
@@ -65,7 +73,6 @@ class _BrowseViewState extends State<BrowseView> {
             label: Text(label),
             selected: sel,
             showCheckmark: false,
-            labelStyle: TextStyle(color: sel ? kBg : kText, fontWeight: FontWeight.w700),
             onSelected: (_) => onSel(v),
           );
         },
@@ -109,8 +116,10 @@ class _BrowseViewState extends State<BrowseView> {
           const Spacer(),
           SizedBox(
             width: wide ? 260 : 150,
-            child: TextField(
-              decoration: const InputDecoration(hintText: 'Filtrer…', prefixIcon: Icon(Icons.search), isDense: true),
+            child: TvTextField(
+              controller: _filterC,
+              hint: 'Filtrer…',
+              prefixIcon: const Icon(Icons.search),
               onChanged: (v) => setState(() => _q = v.trim()),
             ),
           ),

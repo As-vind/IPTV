@@ -286,7 +286,6 @@ class _DetailScreenState extends State<DetailScreen> {
                   label: Text('$name · ${(sn['episodes'] as List).length}'),
                   selected: _season == i,
                   showCheckmark: false,
-                  labelStyle: TextStyle(color: _season == i ? kBg : kText, fontWeight: FontWeight.w700),
                   onSelected: (_) => setState(() => _season = i),
                 );
               },

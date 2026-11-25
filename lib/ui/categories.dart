@@ -32,7 +32,6 @@ class _CategoriesViewState extends State<CategoriesView> {
               label: Text(label),
               selected: _kind == k,
               showCheckmark: false,
-              labelStyle: TextStyle(color: _kind == k ? kBg : kText, fontWeight: FontWeight.w700),
               onSelected: (_) => setState(() => _kind = k),
             ),
         ]),

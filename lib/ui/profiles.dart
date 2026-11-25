@@ -7,6 +7,7 @@ import '../core/store.dart';
 import 'scope.dart';
 import 'theme.dart';
 import 'widgets.dart';
+import 'tv_field.dart';
 
 class ProfilesScreen extends StatefulWidget {
   const ProfilesScreen({super.key});
@@ -142,14 +143,12 @@ class _PinDialogState extends State<_PinDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
         title: Text('Code PIN de ${widget.name}'),
-        content: TextField(
+        content: TvTextField(
           controller: _c,
           autofocus: true,
-          obscureText: true,
-          maxLength: 4,
+          obscure: true,
+          label: 'Code PIN (4 chiffres)',
           keyboardType: TextInputType.number,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 26, letterSpacing: 12),
           onSubmitted: (v) => Navigator.pop(context, v.trim()),
         ),
         actions: [
@@ -197,12 +196,9 @@ class _ProfileDialogState extends State<ProfileDialog> {
               const SizedBox(width: 16),
               Expanded(
                 child: Column(children: [
-                  TextField(controller: _name, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Nom')),
+                  TvTextField(controller: _name, label: 'Nom', onChanged: (_) => setState(() {})),
                   const SizedBox(height: 10),
-                  TextField(
-                    controller: _pin, obscureText: true, maxLength: 4, keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Code PIN (facultatif)', counterText: ''),
-                  ),
+                  TvTextField(controller: _pin, obscure: true, keyboardType: TextInputType.number, label: 'Code PIN (facultatif)'),
                 ]),
               ),
             ]),

@@ -10,6 +10,7 @@ import 'octo.dart';
 import 'pages.dart';
 import 'scope.dart';
 import 'theme.dart';
+import 'tv_field.dart';
 
 class SearchView extends StatefulWidget {
   final bool collapsed;
@@ -46,9 +47,12 @@ class _SearchViewState extends State<SearchView> {
     });
   }
 
+  final _searchC = TextEditingController();
+
   @override
   void dispose() {
     _deb?.cancel();
+    _searchC.dispose();
     super.dispose();
   }
 
@@ -61,19 +65,12 @@ class _SearchViewState extends State<SearchView> {
     final u = UiK.of(context);
     final field = SizedBox(
       width: u.phone ? double.infinity : 440,
-      child: TextField(
-        style: const TextStyle(fontSize: 17),
-        textInputAction: TextInputAction.search,
-        decoration: InputDecoration(
-          hintText: 'Films, Séries, TV, Acteurs…',
-          prefixIcon: const Icon(Icons.search),
-          filled: true,
-          fillColor: Colors.white.withValues(alpha: .1),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(26), borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(26),
-              borderSide: BorderSide(color: Colors.white.withValues(alpha: .14))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(26), borderSide: const BorderSide(color: kAccent)),
-        ),
+      child: TvTextField(
+        controller: _searchC,
+        hint: 'Films, Séries, TV, Acteurs…',
+        label: 'Recherche',
+        prefixIcon: const Icon(Icons.search),
+        action: TextInputAction.search,
         onChanged: _changed,
       ),
     );

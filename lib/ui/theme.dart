@@ -45,6 +45,9 @@ ThemeData buildTheme() {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
         shape: const StadiumBorder(),
         textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+      ).copyWith(
+        side: WidgetStateBorderSide.resolveWith(
+            (st) => st.contains(WidgetState.focused) ? const BorderSide(color: kAccent, width: 4) : BorderSide.none),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -55,16 +58,46 @@ ThemeData buildTheme() {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         shape: const StadiumBorder(),
         textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+      ).copyWith(
+        side: WidgetStateBorderSide.resolveWith((st) => st.contains(WidgetState.focused)
+            ? const BorderSide(color: Colors.white, width: 3)
+            : BorderSide(color: Colors.white.withValues(alpha: 0.18))),
       ),
     ),
+    // Options : choisie = bleu plein + texte blanc ; sous la télécommande = gros contour blanc.
     chipTheme: base.chipTheme.copyWith(
-      backgroundColor: kCard2,
-      selectedColor: Colors.white,
-      side: const BorderSide(color: kBorder),
-      labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+      color: WidgetStateProperty.resolveWith((st) {
+        if (st.contains(WidgetState.selected)) return kAccent;
+        if (st.contains(WidgetState.focused)) return const Color(0xFF2A3A55);
+        return kCard2;
+      }),
+      side: WidgetStateBorderSide.resolveWith((st) {
+        if (st.contains(WidgetState.focused)) return const BorderSide(color: Colors.white, width: 3);
+        if (st.contains(WidgetState.selected)) return const BorderSide(color: kAccent, width: 1.5);
+        return const BorderSide(color: Color(0xFF3A4254));
+      }),
+      labelStyle: WidgetStateTextStyle.resolveWith((st) => TextStyle(
+          color: Colors.white,
+          fontWeight: st.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w600)),
+      checkmarkColor: Colors.white,
+      iconTheme: const IconThemeData(color: Colors.white),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
-    focusColor: kAccent.withValues(alpha: 0.25),
+    textButtonTheme: TextButtonThemeData(
+      style: ButtonStyle(
+        foregroundColor: const WidgetStatePropertyAll(Colors.white),
+        side: WidgetStateBorderSide.resolveWith(
+            (st) => st.contains(WidgetState.focused) ? const BorderSide(color: Colors.white, width: 3) : BorderSide.none),
+        shape: const WidgetStatePropertyAll(StadiumBorder()),
+        padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 18, vertical: 12)),
+      ),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? Colors.white : kMuted),
+      trackColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? kAccent : kCard2),
+    ),
+    listTileTheme: const ListTileThemeData(selectedColor: kAccent),
+    focusColor: Colors.white.withValues(alpha: 0.16),
   );
 }
 

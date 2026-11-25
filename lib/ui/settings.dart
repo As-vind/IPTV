@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/meta.dart';
 import '../core/playlist_import.dart';
 import 'advanced.dart';
+import 'tv_field.dart';
 import '../core/store.dart';
 import 'scope.dart';
 import 'theme.dart';
@@ -55,7 +56,6 @@ class _SourceDialogState extends State<_SourceDialog> {
   // envoi depuis un autre appareil
   LanImport? _lan;
   StreamSubscription<(String, List<int>)>? _lanSub;
-  String? _lanAddr;
 
   @override
   void dispose() {
@@ -107,11 +107,14 @@ class _SourceDialogState extends State<_SourceDialog> {
     try {
       _lan ??= LanImport();
       final a = await _lan!.start();
-      _lanSub = _lan!.files.listen((f) {
-        if (mounted) _gotFile(f.$1, f.$2);
-      });
-      if (mounted) setState(() => _lanAddr = a);
+      if (!mounted) return;
+      // Panneau dédié (adresse + QR code) : rien n'est coupé en bas de l'écran, même sur une TV.
+      final got = await showDialog<(String, List<int>)>(context: context, builder: (_) => LanReceiveDialog(lan: _lan!, address: a));
+      await _lan?.stop();
+      _lan = null;
+      if (got != null && mounted) await _gotFile(got.$1, got.$2);
     } catch (e) {
+      await _lan?.stop();
       _lan = null;
       if (mounted) setState(() => _err = 'Envoi impossible : $e');
     }
@@ -173,11 +176,10 @@ class _SourceDialogState extends State<_SourceDialog> {
 
   Widget _modeChip(_Mode m, IconData ic, String t, {bool autofocus = false}) => ChoiceChip(
         autofocus: autofocus,
-        avatar: Icon(ic, size: 18, color: _mode == m ? kBg : kAccent),
+        avatar: Icon(ic, size: 18, color: Colors.white),
         label: Text(t),
         selected: _mode == m,
         showCheckmark: false,
-        labelStyle: TextStyle(color: _mode == m ? kBg : kText, fontWeight: FontWeight.w700),
         onSelected: (_) => setState(() {
           _mode = m;
           _err = null;
@@ -186,14 +188,8 @@ class _SourceDialogState extends State<_SourceDialog> {
 
   Widget _bigButton(IconData ic, String title, String sub, VoidCallback onTap) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
-        child: Material(
-          color: Colors.white.withValues(alpha: .06),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withValues(alpha: .12))),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            focusColor: kAccent.withValues(alpha: .28),
-            onTap: _busy ? null : onTap,
+        child: FocusCard(
+          onTap: _busy ? null : onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(children: [
@@ -208,7 +204,6 @@ class _SourceDialogState extends State<_SourceDialog> {
                 ),
               ]),
             ),
-          ),
         ),
       );
 
@@ -217,21 +212,6 @@ class _SourceDialogState extends State<_SourceDialog> {
             'Fichier .m3u / .m3u8 (téléchargements, carte SD, clé USB, iCloud…)', _pick),
         _bigButton(Icons.devices_rounded, 'Envoyer depuis un autre appareil',
             'Téléphone ou PC sur le même Wi-Fi — idéal pour une TV', _startLan),
-        if (_lanAddr != null)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: const Color(0xFF10233F), borderRadius: BorderRadius.circular(14)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Sur votre téléphone ou PC, ouvrez dans le navigateur :', style: TextStyle(color: kMuted, fontSize: 13)),
-              const SizedBox(height: 6),
-              SelectableText(_lanAddr!, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white)),
-              const SizedBox(height: 6),
-              Text(_bytes == null ? 'puis choisissez le fichier. En attente…' : 'Fichier reçu ✓',
-                  style: const TextStyle(color: kMuted, fontSize: 13)),
-            ]),
-          ),
         if (_busy)
           const Padding(
             padding: EdgeInsets.only(bottom: 10),
@@ -268,24 +248,22 @@ class _SourceDialogState extends State<_SourceDialog> {
                 _modeChip(_Mode.xtream, Icons.satellite_alt, 'Compte Xtream'),
               ]),
               const SizedBox(height: 14),
-              TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nom (facultatif)')),
+              TvTextField(controller: _name, label: 'Nom (facultatif)'),
               const SizedBox(height: 10),
             ],
             if (_mode == _Mode.url) ...[
-              TextField(controller: _url, keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(labelText: 'Lien M3U', hintText: 'https://…/playlist.m3u')),
+              TvTextField(controller: _url, keyboardType: TextInputType.url, label: 'Lien M3U', hint: 'https://…/playlist.m3u'),
               const SizedBox(height: 8),
               const Text('Un lien « get.php?username=…&password=… » est converti automatiquement en compte Xtream '
                   '(TV + films + séries + fiches).', style: TextStyle(color: kMuted, fontSize: 12.5)),
             ] else if (_mode == _Mode.file)
               ..._fileSection()
             else ...[
-              TextField(controller: _server, keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(labelText: 'Serveur', hintText: 'http://serveur.exemple.com:8080')),
+              TvTextField(controller: _server, keyboardType: TextInputType.url, label: 'Serveur', hint: 'http://serveur.exemple.com:8080'),
               const SizedBox(height: 10),
-              TextField(controller: _user, decoration: const InputDecoration(labelText: 'Identifiant')),
+              TvTextField(controller: _user, label: 'Identifiant'),
               const SizedBox(height: 10),
-              TextField(controller: _pass, obscureText: true, decoration: const InputDecoration(labelText: 'Mot de passe')),
+              TvTextField(controller: _pass, obscure: true, label: 'Mot de passe'),
               const SizedBox(height: 10),
               Row(children: [
                 const Text('Format des chaînes :  ', style: TextStyle(color: kMuted)),
@@ -408,7 +386,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             '${kTmdbBuiltin.length > 0 ? "  Une clé est déjà intégrée à l'application : ce champ ne sert que si vous voulez utiliser la vôtre." : ''}',
             style: const TextStyle(color: kMuted, height: 1.4)),
         const SizedBox(height: 10),
-        TextField(controller: _key, obscureText: true, decoration: const InputDecoration(labelText: 'Clé API TMDB')),
+        TvTextField(controller: _key, obscure: true, label: 'Clé API TMDB'),
         const SizedBox(height: 10),
         Wrap(spacing: 10, runSpacing: 10, children: [
           FilledButton(onPressed: _testing ? null : () => _saveKey(s), child: Text(_testing ? 'Vérification…' : 'Tester et enregistrer')),
@@ -425,7 +403,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               label: Text(name),
               selected: s.lang == code,
               showCheckmark: false,
-              labelStyle: TextStyle(color: s.lang == code ? kBg : kText, fontWeight: FontWeight.w700),
               onSelected: (_) => s.setLang(code),
             ),
         ]),
@@ -441,7 +418,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           for (final (v, t) in const [(0, 'Désactivé'), (1, "1 min d'avance"), (5, "5 min d'avance"), (10, "10 min d'avance")])
             ChoiceChip(
               label: Text(t), selected: s.bufferMin == v, showCheckmark: false,
-              labelStyle: TextStyle(color: s.bufferMin == v ? kBg : kText, fontWeight: FontWeight.w700),
               onSelected: (_) => s.setBufferMin(v),
             ),
         ]),
@@ -491,6 +467,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 10),
         const Align(alignment: Alignment.centerLeft, child: Signature(size: 22)),
       ]),
+    );
+  }
+}
+
+/// Réception d'une liste envoyée depuis un téléphone ou un PC : adresse en grand + QR code à scanner.
+class LanReceiveDialog extends StatefulWidget {
+  final LanImport lan;
+  final String address;
+  const LanReceiveDialog({super.key, required this.lan, required this.address});
+  @override
+  State<LanReceiveDialog> createState() => _LanReceiveDialogState();
+}
+
+class _LanReceiveDialogState extends State<LanReceiveDialog> {
+  StreamSubscription<(String, List<int>)>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.lan.files.listen((f) {
+      if (mounted) Navigator.of(context).pop(f);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final info = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Sur votre téléphone ou PC (même Wi-Fi), scannez le QR code ou ouvrez dans le navigateur :',
+          style: TextStyle(color: kMuted, height: 1.35)),
+      const SizedBox(height: 10),
+      SelectableText(widget.address, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
+      const SizedBox(height: 10),
+      const Text('puis choisissez le fichier .m3u / .m3u8.', style: TextStyle(color: kMuted)),
+      const SizedBox(height: 14),
+      const Row(children: [
+        SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: kAccent)),
+        SizedBox(width: 10),
+        Text('En attente du fichier…'),
+      ]),
+    ]);
+    return AlertDialog(
+      title: const Text('Envoyer une liste depuis un autre appareil'),
+      content: SizedBox(
+        width: 640,
+        child: LayoutBuilder(
+          builder: (c, cons) => cons.maxWidth < 480
+              ? SingleChildScrollView(child: Column(children: [info, const SizedBox(height: 14), QrView(widget.address, size: 180)]))
+              : Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(child: info),
+                  const SizedBox(width: 18),
+                  QrView(widget.address, size: 190),
+                ]),
+        ),
+      ),
+      actions: [TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Annuler'))],
     );
   }
 }
