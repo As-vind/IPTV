@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'admin.dart';
+import 'channels.dart';
 import 'countries.dart';
 import 'downloads.dart';
 import 'm3u.dart';
@@ -18,7 +20,7 @@ import 'text.dart';
 import 'xtream.dart';
 
 const String kAppTitle = 'IPTV Player';
-const String kAppVersion = '2.7';
+const String kAppVersion = '2.8';
 
 /// Clé TMDB intégrée (jaquettes, fonds, acteurs). Un secret GitHub TMDB_KEY, s'il existe, la remplace.
 const String _kTmdbDefault =
@@ -87,6 +89,16 @@ class AppState extends ChangeNotifier {
   int libVersion = 0;
 
   Map<String, dynamic>? currentSource;
+  late StreamStats stats;
+  int cores = 0, ramMb = 0;
+  String hwTier = 'mid';
+  final List<String> appLog = [];
+  final Map<String, Map<String, dynamic>> guides = {};
+  final Map<String, Future<void>> _guideLoading = {};
+  AdminServer? admin;
+  Timer? _maintT;
+  /// Liste complète (avant catégories masquées et regroupement) : administration web.
+  List<Item> get rawItems => _raw;
   Map<String, dynamic>? profile;
   Set<String> favorites = {};
 
@@ -115,6 +127,10 @@ class AppState extends ChangeNotifier {
     cfg.putIfAbsent('downloads', () => <dynamic>[]);
     cfg.putIfAbsent('buffer_min', () => 0);
     cfg.putIfAbsent('live_cache', () => 3);
+    _ensureSettings();
+    stats = StreamStats(Map<String, dynamic>.from((cfg['stream_stats'] as Map?) ?? {}));
+    cfg['stream_stats'] = stats.d;
+    (cores, ramMb, hwTier) = hardware();
     if ((cfg['profiles'] as List?)?.isNotEmpty != true) {
       cfg['profiles'] = [
         {'id': 'p1', 'name': 'Principal', 'color': kAvatarColors[0], 'emoji': '🦤', 'kids': false, 'pin': ''}
@@ -130,6 +146,9 @@ class AppState extends ChangeNotifier {
       selectProfile(last.first['id'] as String, notify: false);
     }
     downloads.init();
+    _maintT = Timer.periodic(const Duration(minutes: 10), (_) => maintenanceTick());
+    Timer(const Duration(seconds: 90), maintenanceTick);
+    if ((cfg['admin'] as Map)['enabled'] == true) unawaited(setAdmin(true));
     final srcs = sources;
     if (srcs.isNotEmpty) {
       final sid = srcs.any((s) => s['id'] == cfg['last_source']) ? cfg['last_source'] as String : srcs.first['id'] as String;
@@ -260,11 +279,14 @@ class AppState extends ChangeNotifier {
             throw Exception("Le contenu reçu n'est pas une liste M3U valide.");
           }
           its = await compute(parseM3u, text);
+          _noteEpgHeader(src, text.length > 4000 ? text.substring(0, 4000) : text);
         } else {
           // fichier local : lecture, décodage et analyse hors de l'écran principal
           final f = File(loc.replaceFirst('file://', ''));
           if (!await f.exists()) throw Exception('Fichier introuvable : ${f.path}');
-          its = await compute(_parseM3uFile, f.path);
+          final (fits, head) = await compute(_parseM3uFile, f.path);
+          its = fits;
+          _noteEpgHeader(src, head);
         }
         info = '';
       }
@@ -273,6 +295,8 @@ class AppState extends ChangeNotifier {
       final payload = {'info': info, 'items': its.map((e) => e.toJson()).toList()};
       final enc = await compute(_encodeCache, payload);
       await File(_cachePath(sid)).writeAsString(enc);
+      src['updated_ts'] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      save();
       if (currentSource?['id'] == sid) _applyLibrary(its, info);
     } catch (e) {
       error = 'Impossible de charger « ${src['name']} » : $e';
@@ -314,6 +338,9 @@ class AppState extends ChangeNotifier {
     if (profile?['kids'] == true) {
       its = raw.where((i) => !adultRe.hasMatch('${i.group} ${i.name}')).toList();
     }
+    final hidden = ((cfg['hidden_groups'] as List?) ?? const []).map((e) => '$e').toSet();
+    if (hidden.isNotEmpty) its = its.where((i) => !hidden.contains(i.group)).toList();
+    if (pset['dedupe'] != false) its = groupVariants(its);
     items = its;
     byKind = {'live': [], 'movie': [], 'series': []};
     byUrl = {};
@@ -331,12 +358,13 @@ class AppState extends ChangeNotifier {
         it.sub = [it.year, prettyGroup(it.group)].where((e) => e.isNotEmpty).join(' · ');
         _titles[it.kind]!.putIfAbsent(titleKey(t), () => []).add(it);
       } else {
-        it.title = stripLeadTags(it.name);
-        it.q = norm(it.name);
+        it.title = it.grouped ? displayName(it.name) : stripLeadTags(it.name);
+        it.q = norm('${it.name} ${it.title}');
         it.sub = prettyGroup(it.group);
       }
       byKind.putIfAbsent(it.kind, () => []).add(it);
     }
+    _remapSaved();
     libVersion++;
   }
 
@@ -417,7 +445,12 @@ class AppState extends ChangeNotifier {
             'movie': 'Films par catégories', 'series': 'Séries par catégories', 'live': 'Chaînes par catégories'
           }[kind]!));
     }
-    final entries = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final order = {for (final (i, g) in ((cfg['group_order'] as List?) ?? const []).indexed) '$g': i};
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final oa = order[a.key] ?? 1000000, ob = order[b.key] ?? 1000000;
+        return oa != ob ? oa.compareTo(ob) : b.value.compareTo(a.value);
+      });
     for (final e in entries.take(limit)) {
       final cc = kind == 'live' ? detectCountry(group: e.key) : 'ZZ';
       final u = e.value > 1 ? '${unit}s' : unit;
@@ -432,7 +465,12 @@ class AppState extends ChangeNotifier {
   bool isFav(String url) => favorites.contains(url);
 
   void toggleFavorite(String url) {
-    if (!favorites.remove(url)) favorites.add(url);
+    if (!favorites.remove(url)) {
+      favorites.add(url);
+      final it = byUrl[url];
+      final k = it == null ? null : stableKey(it);
+      if (k != null) (cfg['fav_keys'] as Map)[url] = k;
+    }
     save();
     notifyListeners();
   }
@@ -648,6 +686,295 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  String epgUrl(Map<String, dynamic>? src) => '${src?['epg'] ?? src?['epg_auto'] ?? ''}'.trim();
+
+  void _noteEpgHeader(Map<String, dynamic> src, String head) {
+    final m = RegExp(r'(?:url-tvg|x-tvg-url)\s*=\s*"([^"]+)"', caseSensitive: false).firstMatch(head);
+    if (m != null) {
+      final u = m.group(1)!.split(',').first.trim();
+      if (u != src['epg_auto']) {
+        src['epg_auto'] = u;
+        guides.remove(src['id']);
+      }
+    }
+  }
+
+  /// Programme en cours et à venir : compte Xtream, sinon guide XMLTV (de la liste ou choisi).
+  Future<List<Map<String, dynamic>>> epgFor(PlayItem it) async {
+    final src = currentSource;
+    if (src == null) return [];
+    if (src['type'] == 'xtream' && it.streamId.isNotEmpty && '${src['epg'] ?? ''}'.isEmpty) return epgById(it.streamId);
+    if (epgUrl(src).isEmpty) return [];
+    await loadGuide(src);
+    final probe = Item.make(it.name, it.url, group: it.group, tvgId: it.tvgId);
+    return guideEpg(guides[src['id']], probe);
+  }
+
+  Future<void> loadGuide(Map<String, dynamic> src, {bool force = false}) {
+    final sid = '${src['id']}';
+    if (!force && guides.containsKey(sid)) return Future.value();
+    return _guideLoading[sid] ??= () async {
+      try {
+        final f = File('${_dir.path}/epg/$sid.json');
+        if (!force && await f.exists() && DateTime.now().difference(await f.lastModified()).inHours < 12) {
+          guides[sid] = Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map);
+          return;
+        }
+        final bytes = await getBytes(epgUrl(src), timeout: const Duration(seconds: 180));
+        final g = await compute(parseXmltv, bytes);
+        await f.parent.create(recursive: true);
+        await f.writeAsString(jsonEncode(g));
+        guides[sid] = g;
+        log('Guide TV chargé : ${(g['progs'] as Map).length} chaînes');
+      } catch (e) {
+        guides[sid] = {};
+        log('Guide TV indisponible : $e');
+      } finally {
+        _guideLoading.remove(sid);
+      }
+    }();
+  }
+
+  // ------------------------------------------------------------ réglages avancés
+  Map<String, dynamic> get pset => cfg['player'] as Map<String, dynamic>;
+
+  void _ensureSettings() {
+    final p = Map<String, dynamic>.from((cfg['player'] as Map?) ?? {});
+    for (final st in kSettings) {
+      p.putIfAbsent(st.key, () => st.def);
+    }
+    if (p['_migrated'] != true) {
+      p['c_live_cache'] = ((cfg['live_cache'] as num?) ?? 3).toDouble();
+      p['_migrated'] = true;
+    }
+    cfg['player'] = p;
+    cfg['ch_quality'] = Map<String, dynamic>.from((cfg['ch_quality'] as Map?) ?? {});
+    cfg['fav_keys'] = Map<String, dynamic>.from((cfg['fav_keys'] as Map?) ?? {});
+    cfg.putIfAbsent('hidden_groups', () => <dynamic>[]);
+    cfg.putIfAbsent('group_order', () => <dynamic>[]);
+    cfg.putIfAbsent('auto_live_cache', () => kAutoSteps[1]);
+    final adm = Map<String, dynamic>.from((cfg['admin'] as Map?) ?? {});
+    adm.putIfAbsent('enabled', () => false);
+    adm.putIfAbsent('port', () => 8080);
+    if (!RegExp(r'^\d{6}$').hasMatch('${adm['pin'] ?? ''}')) {
+      adm['pin'] = (Random.secure().nextInt(900000) + 100000).toString();
+    }
+    cfg['admin'] = adm;
+  }
+
+  dynamic setSetting(String key, dynamic value) {
+    final v = coerceSetting(key, value);
+    final old = pset[key];
+    pset[key] = v;
+    save();
+    if (key == 'dedupe' && old != v) _applyLibrary(_raw, sourceInfo);
+    notifyListeners();
+    return v;
+  }
+
+  void resetSettings() {
+    for (final st in kSettings) {
+      pset[st.key] = st.def;
+    }
+    cfg['ch_quality'] = <String, dynamic>{};
+    cfg['auto_live_cache'] = kAutoSteps[1];
+    save();
+    _applyLibrary(_raw, sourceInfo);
+    notifyListeners();
+  }
+
+  Prof get prof => effectiveProfile(pset, cfg, hwTier);
+
+  void log(String m) {
+    final n = DateTime.now();
+    String two(int x) => x.toString().padLeft(2, '0');
+    appLog.add('${two(n.day)}/${two(n.month)} ${two(n.hour)}:${two(n.minute)}:${two(n.second)}  $m');
+    if (appLog.length > 400) appLog.removeRange(0, appLog.length - 400);
+  }
+
+  void setHiddenGroups(List<String> hidden, List<String>? order) {
+    cfg['hidden_groups'] = hidden.take(5000).toList();
+    if (order != null) cfg['group_order'] = order.take(5000).toList();
+    save();
+    _applyLibrary(_raw, sourceInfo);
+    notifyListeners();
+  }
+
+  /// Favoris et historique dont le lien a changé à l'actualisation : retrouvés par nom de chaîne / titre.
+  void _remapSaved() {
+    if (items.isEmpty) return;
+    final km = (cfg['fav_keys'] as Map).map((k, v) => MapEntry('$k', '$v'));
+    for (final u in favorites) {
+      final it = byUrl[u];
+      if (!km.containsKey(u) && it != null) {
+        final k = stableKey(it);
+        if (k != null) km[u] = k;
+      }
+    }
+    final (favs, newmap, n) = remapUrls(favorites.toList()..sort(), km, items);
+    if (n > 0) {
+      favorites = favs.toSet();
+      log('$n favori(s) retrouvé(s) après l\'actualisation de la liste');
+    }
+    cfg['fav_keys'] = {...km, ...newmap};
+    final alias = <String, String>{};
+    for (final it in byKind['live'] ?? const <Item>[]) {
+      for (final v in it.variants) {
+        if (v.url != it.url) alias[v.url] = it.url;
+      }
+    }
+    if (alias.isNotEmpty) {
+      final moved = favorites.where(alias.containsKey).map((u) => alias[u]!).toSet();
+      if (moved.isNotEmpty) favorites = favorites.where((u) => !alias.containsKey(u)).toSet()..addAll(moved);
+      final h = liveHist;
+      for (final u in h.keys.where(alias.containsKey).toList()) {
+        final to = alias[u]!;
+        h[to] = ((h[to] as num?) ?? 0) + ((h.remove(u) as num?) ?? 0);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ maintenance
+  DateTime _lastClean = DateTime.fromMillisecondsSinceEpoch(0);
+
+  Future<void> maintenanceTick() async {
+    final now = DateTime.now();
+    if (pset['auto_backup'] != false) await autoBackup();
+    final h = (pset['auto_refresh_h'] as num? ?? 24).toInt();
+    final src = currentSource;
+    final upd = (src?['updated_ts'] as num?)?.toInt() ?? 0;
+    if (h > 0 && src != null && !loading && now.millisecondsSinceEpoch ~/ 1000 - upd > h * 3600 && !playing) {
+      log('Actualisation automatique de « ${src['name']} »');
+      unawaited(setSource('${src['id']}', force: true));
+    }
+    if (now.difference(_lastClean).inHours >= 24) unawaited(cleanNow());
+    if (autoCacheRelax(cfg)) log('Profil AUTO : connexion stable, mémoire tampon ramenée à ${cfg['auto_live_cache']} s');
+    save();
+  }
+
+  /// Vrai pendant la lecture (pas d'actualisation automatique à ce moment-là).
+  bool playing = false;
+
+  /// Mesures du lecteur en cours (panneau Diagnostic et administration web).
+  Map<String, dynamic> Function()? diag;
+
+  /// Chaîne → (qualité maximale après un repli, heure) : mémorisé le temps de la session.
+  final Map<String, (int, DateTime)> degraded = {};
+
+  Future<int> cleanNow() async {
+    _lastClean = DateTime.now();
+    final mb = (pset['cache_max_mb'] as num? ?? 500).toInt();
+    final (n1, b1) = await cleanCache([Directory('${_dir.path}/meta')], mb);
+    final (n2, b2) = await cleanCache([Directory('${_dir.path}/epg'), Directory('${_dir.path}/tampon')], 300, maxAgeDays: 7);
+    log('Nettoyage du cache : ${n1 + n2} fichiers, ${((b1 + b2) / 1048576).toStringAsFixed(1)} Mo libérés');
+    return b1 + b2;
+  }
+
+  Future<void> autoBackup() async {
+    try {
+      final d = Directory('${_dir.path}/sauvegardes');
+      await d.create(recursive: true);
+      final n = DateTime.now();
+      final name = 'config-${n.year}${n.month.toString().padLeft(2, '0')}${n.day.toString().padLeft(2, '0')}.json';
+      final f = File('${d.path}/$name');
+      if (await f.exists()) return;
+      await f.writeAsString(jsonEncode(backupData()));
+      final olds = (await d.list().where((e) => e.path.endsWith('.json')).toList())..sort((a, b) => a.path.compareTo(b.path));
+      for (final o in olds.take(max(0, olds.length - 7))) {
+        await o.delete();
+      }
+      log('Sauvegarde automatique de la configuration');
+    } catch (_) {}
+  }
+
+  Map<String, dynamic> backupData() {
+    if (profile != null) pdata['favorites'] = favorites.toList()..sort();
+    final d = Map<String, dynamic>.from(jsonDecode(jsonEncode(cfg)) as Map);
+    d.remove('stream_stats');
+    d['_backup'] = {'app': kAppTitle, 'version': kAppVersion, 'date': DateTime.now().toIso8601String()};
+    return d;
+  }
+
+  Future<void> restore(Map<String, dynamic> data) async {
+    if (data['sources'] is! List || data['profiles'] is! List) {
+      throw const FormatException("ce fichier n'est pas une sauvegarde d'IPTV Player");
+    }
+    final keepAdmin = cfg['admin'];
+    final keepStats = cfg['stream_stats'];
+    cfg = {for (final e in data.entries) if (!e.key.startsWith('_')) e.key: e.value};
+    cfg['admin'] = keepAdmin;
+    cfg['stream_stats'] = keepStats;
+    _ensureSettings();
+    profile = null;
+    selectProfile(profiles.first['id'] as String, notify: false);
+    save(now: true);
+    final srcs = sources;
+    if (srcs.isNotEmpty) {
+      await setSource(srcs.any((s) => s['id'] == cfg['last_source']) ? '${cfg['last_source']}' : '${srcs.first['id']}');
+    }
+    log('Configuration restaurée');
+    notifyListeners();
+  }
+
+  /// Vérifie une liste de chaînes (favoris, catégorie). Renvoie (ok, en échec).
+  Future<(int, int)> checkItems(List<Item> its) async {
+    final urls = <String>[for (final i in its) ...(i.variants.isEmpty ? [i.url] : i.variants.map((v) => v.url))];
+    var ok = 0, bad = 0;
+    final queue = urls.take(400).toList();
+    Future<void> worker() async {
+      while (queue.isNotEmpty) {
+        final u = queue.removeLast();
+        final (good, _) = await probeStream(u, kUserAgent);
+        if (good) {
+          ok++;
+          stats.ok(u);
+        } else {
+          bad++;
+          stats.fail(u);
+        }
+      }
+    }
+
+    await Future.wait(List.generate(6, (_) => worker()));
+    save();
+    log('Vérification : $ok flux OK, $bad indisponibles');
+    return (ok, bad);
+  }
+
+  // ------------------------------------------------------------ administration web
+  Future<String?> setAdmin(bool on) async {
+    final adm = cfg['admin'] as Map<String, dynamic>;
+    if (on) {
+      admin ??= AdminServer(this);
+      try {
+        await admin!.start((adm['port'] as num? ?? 8080).toInt(), '${adm['pin']}');
+        adm['enabled'] = true;
+        adm['port'] = admin!.port;
+        log('Administration web : ${admin!.urls.isEmpty ? '' : admin!.urls.first}');
+      } catch (e) {
+        adm['enabled'] = false;
+        save();
+        notifyListeners();
+        return '$e';
+      }
+    } else {
+      await admin?.stop();
+      adm['enabled'] = false;
+    }
+    save();
+    notifyListeners();
+    return null;
+  }
+
+  void newAdminPin() {
+    final adm = cfg['admin'] as Map<String, dynamic>;
+    adm['pin'] = (Random.secure().nextInt(900000) + 100000).toString();
+    admin?.pin = '${adm['pin']}';
+    admin?.tokens.clear();
+    save();
+    notifyListeners();
+  }
+
   void touch() => notifyListeners();
 
   // ------------------------------------------------------------ réglages
@@ -692,11 +1019,11 @@ class AppState extends ChangeNotifier {
   }
 }
 
-/// Lit et analyse un fichier M3U (exécuté dans un isolat séparé).
-List<Item> _parseM3uFile(String path) {
+/// Lit et analyse un fichier M3U (exécuté dans un isolat séparé) ; renvoie aussi l'en-tête (guide TV).
+(List<Item>, String) _parseM3uFile(String path) {
   final text = decodeBody(File(path).readAsBytesSync());
   if (!RegExp('#EXTINF', caseSensitive: false).hasMatch(text)) {
     throw Exception("Le fichier n'est pas une liste M3U valide.");
   }
-  return parseM3u(text);
+  return (parseM3u(text), text.length > 4000 ? text.substring(0, 4000) : text);
 }

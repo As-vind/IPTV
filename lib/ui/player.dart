@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../core/channels.dart';
 import '../core/models.dart';
 import '../core/net.dart';
 import '../core/store.dart';
@@ -46,6 +47,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _epg = '';
   double? _dragValue;
   bool _endedHandled = false;
+  // flux en cours (qualité, reconnexions, diagnostic)
+  List<Variant> _variants = [];
+  int _vidx = 0;
+  String _url = '';
+  final Set<String> _failed = {};
+  int _retries = 0, _reconnects = 0, _stalls = 0;
+  DateTime _lastProgress = DateTime.now(), _openTs = DateTime.now(), _lastRecover = DateTime(2000);
+  DateTime _stableSince = DateTime.now(), _upgradeTry = DateTime(2000), _upgradeBlock = DateTime(2000);
+  Duration _posPrev = Duration.zero;
+  int? _zapMs;
+  bool _okNoted = false, _gaveUp = false, _hadError = false, _showDiag = false;
+  String _status = '';
+  Timer? _dogT;
+  Map<String, String> _mpv = {};
+  (int, double)? _cpuPrev;
+  double? _cpuPct;
 
   PlayItem get _cur => widget.items[_index];
   bool get _live => _cur.kind == 'live';
@@ -70,6 +87,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }),
     ]);
     _saveT = Timer.periodic(const Duration(seconds: 5), (_) => _saveProgress());
+    _dogT = Timer.periodic(const Duration(seconds: 1), (_) => _watchdog());
+    _s.playing = true;
+    _s.diag = _diagData;
     _open(_index, resume: widget.resume);
     _poke();
   }
@@ -78,6 +98,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// la vidéo tourne : on n'affiche l'erreur que si la lecture n'avance plus 4 secondes après.
   void _onError(String e) {
     if (e.trim().isEmpty || e.contains('force-seekable') || e.toLowerCase().contains('seek')) return;
+    if (_live) {
+      _hadError = true; // la surveillance relance ou change de flux
+      return;
+    }
     final at = _pos;
     _errT?.cancel();
     _errT = Timer(const Duration(seconds: 4), () {
@@ -112,17 +136,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _errT?.cancel();
       _error = '';
       _epg = '';
+      _status = '';
       _pos = Duration.zero;
       _dur = Duration.zero;
       _endedHandled = false;
     });
     final it = _cur;
     _s.noteLive(it);
-    final local = _s.downloads.localFile(it.url);
-    _localFile = local != null;
-    await _applyCache(local != null);
-    await _player.open(local != null ? Media(local) : Media(it.url, httpHeaders: _headers(it)), play: true);
-    final pr = _s.progressOf(it.url);
+    _failed.clear();
+    _retries = _reconnects = _stalls = 0;
+    _gaveUp = false;
+    _upgradeTry = DateTime(2000);
+    _variants = it.variants.isNotEmpty ? it.variants : [Variant(url: it.url, name: it.name, q: qualityOf(it.name, it.group), opts: it.opts)];
+    _vidx = _live ? _choose() : 0;
+    await _openUrl();
+    final pr = _s.progressOf(it.url);    final pr = _s.progressOf(it.url);
     if (resume && !_live && pr != null && pr['done'] != true && ((pr['pos'] as num?) ?? 0) > 30000) {
       final target = Duration(milliseconds: (pr['pos'] as num).toInt());
       try {
@@ -130,8 +158,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await _player.seek(target);
       } catch (_) {}
     }
-    if (_live && it.streamId.isNotEmpty) {
-      final progs = await _s.epgById(it.streamId);
+    if (_live) {
+      final progs = await _s.epgFor(it);
       if (mounted && progs.isNotEmpty && _cur.url == it.url) {
         String hm(dynamic ts) => ts is int ? fmtHm(DateTime.fromMillisecondsSinceEpoch(ts * 1000)) : '';
         final now = progs.first;
@@ -142,54 +170,443 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Mémoire tampon : films / séries pré-chargés 1, 5 ou 10 min à l'avance (cache sur disque) ;
-  /// chaînes TV : quelques secondes de réserve.
-  Future<void> _applyCache(bool local) async {
-    try {
-      final p = _player.platform as dynamic;
-      Future<void> set(String k, String v) async {
-        try {
-          await p.setProperty(k, v);
-        } catch (_) {}
-      }
+  // ---------------------------------------------------------------- qualité et flux
+  String get _ckey => _cur.ckey.isNotEmpty ? _cur.ckey : _cur.url;
 
-      if (local) {
-        await set('cache', 'no');
-        await set('cache-pause-initial', 'no');
+  int _cap({bool withDegrade = true}) {
+    final mr = '${_s.pset['max_res'] ?? 'auto'}';
+    int cap;
+    if (kQCodes.containsKey(mr)) {
+      cap = kQCodes[mr]!;
+    } else {
+      final v = View.of(context);
+      final px = v.physicalSize.shortestSide;
+      cap = px >= 1800 ? 4 : 3;
+    }
+    if (_s.hwTier == 'low') cap = cap > 3 ? 3 : cap;
+    final nc = networkCap((_s.cfg['bw_peak'] as num?) ?? 0);
+    if (nc != null) cap = cap < (nc < 2 ? 2 : nc) ? cap : (nc < 2 ? 2 : nc);
+    final d = withDegrade ? _s.degraded[_ckey] : null;
+    if (d != null && DateTime.now().difference(d.$2).inMinutes < 15) cap = cap < d.$1 ? cap : d.$1;
+    return cap;
+  }
+
+  int _choose({int? below}) {
+    final pref = '${(_s.cfg['ch_quality'] as Map)[_ckey] ?? _s.pset['quality'] ?? 'auto'}';
+    return pickVariant(_variants, pref: pref, cap: _cap(), stats: _s.stats, exclude: _failed, below: below);
+  }
+
+  Future<void> _openUrl() async {
+    final it = _cur;
+    final v = _variants[_vidx];
+    _url = v.url;
+    _okNoted = false;
+    _hadError = false;
+    _zapMs = null;
+    _openTs = _lastProgress = DateTime.now();
+    _posPrev = Duration.zero;
+    final local = _live ? null : _s.downloads.localFile(it.url);
+    _localFile = local != null;
+    await _applyProps(local != null);
+    final probe = PlayItem(name: it.name, url: v.url, kind: it.kind, opts: v.opts);
+    await _player.open(local != null ? Media(local) : Media(v.url, httpHeaders: _headers(probe)), play: true);
+    if (mounted) setState(() {});
+  }
+
+  /// Réglages mpv : mémoire tampon du profil, image, son, désentrelacement, HDR.
+  Future<void> _applyProps(bool local) async {
+    final p = _player.platform as dynamic;
+    Future<void> set(String k, String v) async {
+      try {
+        await p.setProperty(k, v);
+      } catch (_) {}
+    }
+
+    final st = _s.pset;
+    final prof = _s.prof;
+    await set('hwdec', st['hwdec'] == false ? 'no' : 'auto-safe');
+    await set('deinterlace', {'on': 'yes', 'off': 'no'}[st['deinterlace']] ?? 'auto');
+    await set('target-colorspace-hint', st['hdr'] == 'sdr' ? 'no' : 'yes');
+    if (st['hdr'] == 'sdr') await set('tone-mapping', 'auto');
+    await set('video-sync', st['refresh'] == 'auto' ? 'display-resample' : 'audio');
+    final a = '${st['a_lang'] ?? 'fr'}';
+    if (kLang3.containsKey(a)) await set('alang', kLang3[a]!);
+    final sl = '${st['s_lang'] ?? 'off'}';
+    if (sl == 'off') {
+      await set('sid', 'no');
+    } else {
+      await set('slang', kLang3[sl == 'auto' ? a : sl] ?? 'fr');
+      await set('sid', 'auto');
+    }
+    await set('af', st['normalize'] == true ? 'lavfi=[dynaudnorm=f=250:g=15]' : '');
+    await set('audio-spdif', st['passthrough'] == true ? 'ac3,eac3,dts,dts-hd,truehd' : '');
+    if (st['max_res'] == 'sd') await set('hls-bitrate', 'min');
+    await _applyLive();
+    if (local) {
+      await set('cache', 'no');
+      await set('cache-pause-initial', 'no');
+      return;
+    }
+    await set('cache', 'yes');
+    // autorise l'avance / le retour dans la mémoire tampon, même sur les flux qui ne le déclarent pas
+    await set('force-seekable', 'yes');
+    await set('network-timeout', '${prof.stallTimeout + 5}');
+    await set('stream-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=4');
+    if (_live) {
+      final secs = prof.liveCache;
+      await set('cache-on-disk', 'no');
+      await set('cache-secs', '$secs');
+      await set('demuxer-readahead-secs', '$secs');
+      await set('demuxer-max-bytes', '120MiB');
+      await set('cache-pause-initial', secs > 3 ? 'yes' : 'no');
+      await set('cache-pause-wait', '${secs > 3 ? secs : 1}');
+      return;
+    }
+    final mins = _s.bufferMin;
+    if (mins > 0) {
+      await set('cache-on-disk', 'yes');
+      await set('cache-dir', (await _cacheDir()).path);
+      await set('cache-secs', '${mins * 60}');
+      await set('demuxer-readahead-secs', '${mins * 60}');
+      await set('demuxer-max-bytes', '${mins * 160}MiB');
+      await set('demuxer-max-back-bytes', '60MiB');
+      await set('cache-pause-initial', 'yes');
+      await set('cache-pause-wait', '${mins * 60 < 60 ? mins * 60 : 60}');
+    } else {
+      await set('cache-on-disk', 'no');
+      await set('cache-secs', '${prof.vodCache}');
+      await set('demuxer-readahead-secs', '${prof.vodCache}');
+      await set('demuxer-max-bytes', '150MiB');
+      await set('cache-pause-initial', 'no');
+      await set('cache-pause-wait', '1');
+    }
+  }
+
+  /// Réglages applicables en direct (image, format, synchronisation du son).
+  Future<void> _applyLive() async {
+    final p = _player.platform as dynamic;
+    Future<void> set(String k, String v) async {
+      try {
+        await p.setProperty(k, v);
+      } catch (_) {}
+    }
+
+    final st = _s.pset;
+    for (final k in ['brightness', 'contrast', 'saturation']) {
+      await set(k, '${(st[k] as num? ?? 0).toInt()}');
+    }
+    final sharp = (st['sharpness'] as num? ?? 0).toInt();
+    await set('vf', sharp > 0 ? 'lavfi=[unsharp=5:5:${(sharp / 50).toStringAsFixed(2)}]' : '');
+    final asp = '${st['aspect'] ?? 'auto'}';
+    await set('keepaspect', asp == 'stretch' ? 'no' : 'yes');
+    await set('panscan', asp == 'fill' ? '1.0' : '0.0');
+    await set('video-aspect-override', ['16:9', '4:3', '21:9'].contains(asp) ? asp : '-1');
+    await set('audio-delay', ((st['av_delay'] as num? ?? 0) / 1000).toStringAsFixed(3));
+  }
+
+  // ---------------------------------------------------------------- anti-freeze
+  void _watchdog() {
+    if (!mounted || _url.isEmpty || _gaveUp) return;
+    final now = DateTime.now();
+    final moving = _pos != _posPrev && _pos > Duration.zero;
+    _posPrev = _pos;
+    if (moving) {
+      if (_zapMs == null) {
+        _zapMs = now.difference(_openTs).inMilliseconds;
+        _stableSince = now;
+      }
+      _lastProgress = now;
+      if (!_okNoted && now.difference(_openTs).inSeconds > 20) {
+        _okNoted = true;
+        _retries = 0;
+        _s.stats.ok(_url);
+      }
+    }
+    if (_showDiag || _s.admin?.running == true) _pollDiag();
+    if (!_live) return;
+    if (!_playing && !_buffering && !_hadError) {
+      _lastProgress = now; // pause volontaire
+      return;
+    }
+    final prof = _s.prof;
+    final stuck = _hadError || now.difference(_lastProgress).inSeconds > prof.stallTimeout;
+    if (stuck && now.difference(_lastRecover).inSeconds > 3) {
+      _recover(_hadError ? 'erreur' : 'blocage', prof);
+      return;
+    }
+    // retour à une meilleure qualité après 5 minutes stables
+    final manual = (_s.cfg['ch_quality'] as Map)[_ckey] != null;
+    if (_s.pset['upgrade'] != false && _variants.length > 1 && moving && !manual && _s.pset['quality'] == 'auto' &&
+        now.isAfter(_upgradeBlock) && now.difference(_stableSince).inSeconds > 300 && now.difference(_lastRecover).inSeconds > 300) {
+      final best = pickVariant(_variants, cap: _cap(withDegrade: false), stats: _s.stats, exclude: _failed);
+      int eff(int i) => _variants[i].q == 0 ? 2 : _variants[i].q;
+      if (eff(best) > eff(_vidx)) {
+        _s.degraded.remove(_ckey);
+        _upgradeTry = now;
+        _stableSince = now;
+        _s.log('Connexion stable : retour en ${kQLabels[_variants[best].q]} sur ${_cur.name}');
+        _vidx = best;
+        _openUrl();
+      }
+    }
+  }
+
+  void _recover(String why, Prof prof) {
+    final now = DateTime.now();
+    _lastRecover = now;
+    _stalls++;
+    if (why == 'erreur') {
+      _s.stats.fail(_url);
+    } else {
+      _s.stats.stall(_url);
+      if (prof.mode == 'auto') _s.log('Profil AUTO : mémoire tampon portée à ${autoCacheAfterStall(_s.cfg)} s');
+    }
+    final upgradedRecently = now.difference(_upgradeTry).inSeconds < 45;
+    if (upgradedRecently) {
+      _upgradeBlock = now.add(const Duration(minutes: 15));
+      _upgradeTry = DateTime(2000);
+    }
+    if (_retries < prof.maxRetries && !upgradedRecently) {
+      _retries++;
+      _reconnects++;
+      setState(() => _status = '⟳ Reconnexion ($_retries/${prof.maxRetries})…');
+      _s.log('${why[0].toUpperCase()}${why.substring(1)} sur ${_cur.name} : reconnexion $_retries');
+      _openUrl();
+      return;
+    }
+    if (prof.fallback && _variants.length > 1) {
+      _failed.add(_url);
+      final curq = _variants[_vidx].q == 0 ? 2 : _variants[_vidx].q;
+      final nxt = pickVariant(_variants, stats: _s.stats, exclude: _failed, below: why == 'blocage' ? curq : null);
+      if (!_failed.contains(_variants[nxt].url)) {
+        _s.degraded[_ckey] = (_variants[nxt].q == 0 ? 1 : _variants[nxt].q, now);
+        _vidx = nxt;
+        _retries = 0;
+        final lab = (kQLabels[_variants[nxt].q] ?? '').isEmpty ? 'autre flux' : kQLabels[_variants[nxt].q]!;
+        setState(() => _status = '⇩ Bascule vers $lab (flux ${nxt + 1}/${_variants.length})');
+        _s.log('${why[0].toUpperCase()}${why.substring(1)} sur ${_cur.name} : bascule vers $lab');
+        _openUrl();
         return;
       }
-      await set('cache', 'yes');
-      // autorise l'avance / le retour dans la mémoire tampon, même sur les flux qui ne le déclarent pas
-      await set('force-seekable', 'yes');
-      if (_live) {
-        final secs = _s.liveCacheSecs;
-        await set('cache-on-disk', 'no');
-        await set('cache-secs', '$secs');
-        await set('demuxer-readahead-secs', '$secs');
-        await set('demuxer-max-bytes', '120MiB');
-        await set('cache-pause-initial', secs > 3 ? 'yes' : 'no');
-        await set('cache-pause-wait', '${secs > 3 ? secs : 1}');
-        return;
-      }
-      final mins = _s.bufferMin;
-      if (mins > 0) {
-        await set('cache-on-disk', 'yes');
-        await set('cache-dir', (await _cacheDir()).path);
-        await set('cache-secs', '${mins * 60}');
-        await set('demuxer-readahead-secs', '${mins * 60}');
-        await set('demuxer-max-bytes', '${mins * 160}MiB');
-        await set('demuxer-max-back-bytes', '60MiB');
-        await set('cache-pause-initial', 'yes');
-        await set('cache-pause-wait', '${mins * 60 < 60 ? mins * 60 : 60}');
-      } else {
-        await set('cache-on-disk', 'no');
-        await set('cache-secs', '20');
-        await set('demuxer-readahead-secs', '20');
-        await set('demuxer-max-bytes', '150MiB');
-        await set('cache-pause-initial', 'no');
-        await set('cache-pause-wait', '1');
+    }
+    _gaveUp = true;
+    setState(() => _status = '⚠ Chaîne indisponible pour le moment (tous les flux ont échoué).');
+    _s.log('${_cur.name} : tous les flux ont échoué');
+  }
+
+  // ---------------------------------------------------------------- diagnostic
+  Future<void> _pollDiag() async {
+    final p = _player.platform as dynamic;
+    final out = <String, String>{};
+    for (final k in [
+      'video-params/w', 'video-params/h', 'video-codec', 'audio-codec-name', 'estimated-vf-fps', 'container-fps',
+      'video-bitrate', 'demuxer-cache-duration', 'cache-speed', 'frame-drop-count', 'decoder-frame-drop-count',
+      'hwdec-current', 'video-params/gamma',
+    ]) {
+      try {
+        out[k] = '${await p.getProperty(k)}';
+      } catch (_) {}
+    }
+    final speed = double.tryParse(out['cache-speed'] ?? '') ?? 0;
+    final peak = (_s.cfg['bw_peak'] as num?)?.toDouble() ?? 0;
+    if (speed > 0 && (speed > peak * 0.98 || DateTime.now().difference(_openTs).inSeconds < 8)) {
+      _s.cfg['bw_peak'] = DateTime.now().difference(_openTs).inSeconds < 8 ? (speed > peak * 0.9 ? speed : peak * 0.9).round() : speed.round();
+    }
+    try {
+      if (Platform.isAndroid || Platform.isLinux) {
+        final f = File('/proc/self/stat').readAsStringSync();
+        final parts = f.substring(f.lastIndexOf(')') + 2).split(' ');
+        final ticks = int.parse(parts[11]) + int.parse(parts[12]);
+        final t = DateTime.now().millisecondsSinceEpoch / 1000;
+        if (_cpuPrev != null) {
+          _cpuPct = (ticks - _cpuPrev!.$1) / 100 / (t - _cpuPrev!.$2) / Platform.numberOfProcessors * 100;
+        }
+        _cpuPrev = (ticks, t);
       }
     } catch (_) {}
+    _mpv = out;
+    if (_showDiag && mounted) setState(() {});
+  }
+
+  Map<String, dynamic> _diagData() {
+    final m = _mpv;
+    final v = _variants.isEmpty ? null : _variants[_vidx];
+    final prof = _s.prof;
+    double n(String k) => double.tryParse(m[k] ?? '') ?? 0;
+    final w = m['video-params/w'] ?? '', h = m['video-params/h'] ?? '';
+    final fps = n('estimated-vf-fps') > 0 ? n('estimated-vf-fps') : n('container-fps');
+    final gamma = m['video-params/gamma'] ?? '';
+    final avail = _variants.map((x) => (kQLabels[x.q] ?? '').isEmpty ? 'std' : kQLabels[x.q]!).toSet().join(' / ');
+    final row = _s.stats.row(_url);
+    final peak = (_s.cfg['bw_peak'] as num?)?.toDouble() ?? 0;
+    return {
+      'état': _gaveUp ? 'indisponible' : _buffering ? 'mise en mémoire' : _playing ? 'lecture' : 'pause',
+      'chaîne': _cur.name,
+      'résolution': w.isNotEmpty && w != 'null' ? '$w × $h' : '—',
+      'qualité': '${(kQLabels[v?.q] ?? '').isEmpty ? 'standard' : kQLabels[v?.q]}${_variants.length > 1 ? '  (disponibles : $avail)' : ''}',
+      'codecs': 'vidéo ${m['video-codec'] ?? '—'} · audio ${m['audio-codec-name'] ?? '—'}',
+      'images/s': fps > 0 ? fps.toStringAsFixed(2) : '—',
+      'HDR': gamma == 'pq' || gamma == 'hlg' ? 'oui ($gamma)' : 'non',
+      'décodage': (m['hwdec-current'] ?? '').isEmpty || m['hwdec-current'] == 'no' ? 'logiciel' : 'matériel (${m['hwdec-current']})',
+      'débit': n('video-bitrate') > 0 ? '${(n('video-bitrate') / 1e6).toStringAsFixed(2)} Mbit/s' : '—',
+      'connexion (pointe)': peak > 0 ? '${(peak * 8 / 1e6).toStringAsFixed(1)} Mbit/s' : '—',
+      'mémoire tampon': '${n('demuxer-cache-duration').toStringAsFixed(1)} s / ${_live ? prof.liveCache : prof.vodCache} s (profil ${prof.mode})',
+      'latence de zapping': _zapMs == null ? '…' : '$_zapMs ms',
+      'images perdues': '${m['frame-drop-count'] ?? '0'} (décodeur ${m['decoder-frame-drop-count'] ?? '0'})',
+      'processeur': _cpuPct == null ? '—' : '${_cpuPct!.toStringAsFixed(0)} %',
+      'mémoire': '${(ProcessInfo.currentRss / 1048576).toStringAsFixed(0)} Mo',
+      'coupures / reconnexions': '$_stalls / $_reconnects',
+      'flux': '${_vidx + 1}/${_variants.length} · ${Uri.tryParse(_url)?.host ?? ''} · fiabilité ${row[0]} ok / ${row[1]} échecs / ${row[2]} coupures',
+      if (_failed.isNotEmpty) 'flux en échec': '${_failed.length}',
+    };
+  }
+
+  // ---------------------------------------------------------------- menus
+  Future<void> _pickQuality() async {
+    final cur = (_s.cfg['ch_quality'] as Map)[_ckey];
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF161A23),
+      builder: (c) => SafeArea(
+        child: ListView(shrinkWrap: true, children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Qualité', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          ),
+          ListTile(
+            autofocus: true,
+            selected: cur == null,
+            selectedColor: kAccent,
+            title: const Text('AUTO (meilleure qualité possible)'),
+            onTap: () {
+              Navigator.pop(c);
+              (_s.cfg['ch_quality'] as Map).remove(_ckey);
+              _s.degraded.remove(_ckey);
+              _s.save();
+              _vidx = _choose();
+              _openUrl();
+            },
+          ),
+          for (var i = 0; i < _variants.length; i++)
+            ListTile(
+              selected: i == _vidx,
+              selectedColor: kAccent,
+              title: Text('${(kQLabels[_variants[i].q] ?? '').isEmpty ? 'Standard' : kQLabels[_variants[i].q]}'
+                  '${_s.stats.dead(_variants[i].url) ? '  · indisponible' : ''}'),
+              subtitle: Text(Uri.tryParse(_variants[i].url)?.host ?? '', style: const TextStyle(color: kMuted)),
+              onTap: () {
+                Navigator.pop(c);
+                final code = kQCodes.entries.where((e) => e.value == _variants[i].q).firstOrNull?.key;
+                if (code != null) (_s.cfg['ch_quality'] as Map)[_ckey] = code;
+                _failed.remove(_variants[i].url);
+                _gaveUp = false;
+                _s.save();
+                _vidx = i;
+                _openUrl();
+              },
+            ),
+          if (_variants.length <= 1)
+            const ListTile(enabled: false, title: Text('Une seule qualité disponible pour cette chaîne')),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _tune() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF161A23),
+      builder: (c) => StatefulBuilder(builder: (c, setSt) {
+        void put(String k, dynamic v) {
+          _s.setSetting(k, v);
+          setSt(() {});
+          _applyLive();
+        }
+
+        Widget slider(String k) {
+          final st = kSettingByKey[k]!;
+          return Row(children: [
+            SizedBox(width: 110, child: Text(st.label)),
+            Expanded(
+              child: Slider(
+                min: st.lo.toDouble(), max: st.hi.toDouble(), divisions: (st.hi - st.lo).toInt() ~/ 5,
+                value: ((_s.pset[k] as num?) ?? 0).toDouble().clamp(st.lo.toDouble(), st.hi.toDouble()),
+                label: '${_s.pset[k]}',
+                onChanged: (v) => put(k, v.round()),
+              ),
+            ),
+          ]);
+        }
+
+        Widget choice(String k) {
+          final st = kSettingByKey[k]!;
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(st.label, style: const TextStyle(color: kMuted)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final (code, lab) in st.choices)
+                  ChoiceChip(
+                    label: Text(lab),
+                    selected: _s.pset[k] == code,
+                    showCheckmark: false,
+                    onSelected: (_) => put(k, code),
+                  ),
+              ]),
+            ]),
+          );
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+            child: SingleChildScrollView(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Image et son', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                for (final k in ['brightness', 'contrast', 'saturation', 'sharpness']) slider(k),
+                choice('aspect'),
+                choice('deinterlace'),
+                Row(children: [
+                  const SizedBox(width: 110, child: Text('Décalage du son')),
+                  IconButton(onPressed: () => put('av_delay', ((_s.pset['av_delay'] as num?) ?? 0) - 50), icon: const Icon(Icons.remove)),
+                  Text('${_s.pset['av_delay']} ms'),
+                  IconButton(onPressed: () => put('av_delay', ((_s.pset['av_delay'] as num?) ?? 0) + 50), icon: const Icon(Icons.add)),
+                ]),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Normaliser le volume'),
+                  value: _s.pset['normalize'] == true,
+                  onChanged: (v) {
+                    put('normalize', v);
+                    _applyProps(_localFile);
+                  },
+                ),
+                const SizedBox(height: 6),
+                Row(children: [
+                  TextButton(
+                    onPressed: () {
+                      for (final k in ['brightness', 'contrast', 'saturation', 'sharpness', 'av_delay']) {
+                        _s.pset[k] = 0;
+                      }
+                      _s.pset['aspect'] = 'auto';
+                      _s.save();
+                      setSt(() {});
+                      _applyLive();
+                    },
+                    child: const Text('Réinitialiser'),
+                  ),
+                  const Spacer(),
+                  FilledButton(onPressed: () => Navigator.pop(c), child: const Text('Fermer')),
+                ]),
+              ]),
+            ),
+          ),
+        );
+      }),
+    );
   }
 
   Future<Directory> _cacheDir() async {
@@ -279,6 +696,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _prev();
       return KeyEventResult.handled;
     }
+    if (k == LogicalKeyboardKey.info || k == LogicalKeyboardKey.keyI) {
+      setState(() => _showDiag = !_showDiag);
+      return KeyEventResult.handled;
+    }
     if (k == LogicalKeyboardKey.channelDown) {
       _next();
       return KeyEventResult.handled;
@@ -330,6 +751,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideT?.cancel();
     _saveT?.cancel();
     _errT?.cancel();
+    _dogT?.cancel();
+    _s.playing = false;
+    _s.diag = null;
     for (final s in _subs) {
       s.cancel();
     }
@@ -360,7 +784,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final it = _cur;
     final s = it.series;
     final title = it.name;
-    final subtitle = _epg.isNotEmpty ? _epg : (s != null ? 'Saison ${s['season']} · Épisode ${s['num']}' : prettyGroup(it.group));
+    final subtitle = _status.isNotEmpty
+        ? _status
+        : _epg.isNotEmpty ? _epg : (s != null ? 'Saison ${s['season']} · Épisode ${s['num']}' : prettyGroup(it.group));
     final durMs = _dur.inMilliseconds;
     final posMs = _pos.inMilliseconds < 0 ? 0 : (_pos.inMilliseconds > durMs && durMs > 0 ? durMs : _pos.inMilliseconds);
     return Focus(
@@ -477,8 +903,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               padding: const EdgeInsets.symmetric(horizontal: 8),
                               child: Text(_bufText, style: const TextStyle(color: Color(0xFFB9C6DA), fontSize: 12, fontWeight: FontWeight.w600)),
                             ),
+                          if (_live)
+                            TextButton.icon(
+                              onPressed: () {
+                                _pickQuality();
+                                _poke();
+                              },
+                              icon: const Icon(Icons.hd_outlined, color: Colors.white),
+                              label: Text(
+                                  (kQLabels[_variants.isEmpty ? 0 : _variants[_vidx].q] ?? '').isEmpty
+                                      ? 'Qualité'
+                                      : kQLabels[_variants[_vidx].q]!,
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                            ),
                           _btn(Icons.audiotrack, () => _pickTrack(true), size: 24, tip: 'Audio'),
                           _btn(Icons.subtitles, () => _pickTrack(false), size: 24, tip: 'Sous-titres'),
+                          _btn(Icons.tune, _tune, size: 24, tip: 'Image et son'),
+                          _btn(Icons.insights, () => setState(() => _showDiag = !_showDiag), size: 24, tip: 'Diagnostic'),
                         ]),
                       ),
                       const SizedBox(height: 6),
@@ -487,6 +928,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ]),
               ),
             ),
+            if (_showDiag)
+              Positioned(
+                left: 12, top: 70,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 330,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: const Color(0xD90B0E14), borderRadius: BorderRadius.circular(12)),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Diagnostic', style: TextStyle(fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 6),
+                      for (final e in _diagData().entries)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 1),
+                          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            SizedBox(width: 120, child: Text(e.key, style: const TextStyle(color: kMuted, fontSize: 11.5))),
+                            Expanded(child: Text('${e.value}', style: const TextStyle(fontSize: 11.5))),
+                          ]),
+                        ),
+                    ]),
+                  ),
+                ),
+              ),
             if (_showList)
               Positioned(
                 right: 0, top: 0, bottom: 0,

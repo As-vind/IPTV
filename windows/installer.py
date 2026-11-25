@@ -25,7 +25,7 @@ import subprocess
 import urllib.request
 
 APP_NAME = "IPTV Player"
-APP_VERSION = "2.7"
+APP_VERSION = "2.8"
 PUBLISHER = "Asvind"
 REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\IPTVPlayer"
 HERE = os.path.dirname(os.path.abspath(__file__))

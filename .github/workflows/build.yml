@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: "2.7"
+  APP_VERSION: "2.8"
 
 jobs:
   verification:

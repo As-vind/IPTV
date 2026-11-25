@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/meta.dart';
 import '../core/playlist_import.dart';
+import 'advanced.dart';
 import '../core/store.dart';
 import 'scope.dart';
 import 'theme.dart';
@@ -368,6 +369,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (src['file'] != null)
                   IconButton(tooltip: 'Remplacer le fichier', icon: const Icon(Icons.upload_file),
                       onPressed: () => showSourceDialog(context, replace: src)),
+                IconButton(tooltip: 'Guide TV', icon: const Icon(Icons.event_note_outlined),
+                    onPressed: () => editGuide(context, src)),
                 IconButton(tooltip: 'Actualiser', icon: const Icon(Icons.refresh),
                     onPressed: () => s.setSource('${src['id']}', force: true)),
                 IconButton(
@@ -442,19 +445,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onSelected: (_) => s.setBufferMin(v),
             ),
         ]),
-        const SizedBox(height: 10),
-        Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          const Text('Chaînes TV (mémoire tampon) :  ', style: TextStyle(color: kMuted)),
-          for (final (v, t) in const [(3, '3 s (standard)'), (5, '5 s'), (10, '10 s'), (20, '20 s'), (30, '30 s')])
-            ChoiceChip(
-              label: Text(t), selected: s.liveCacheSecs == v, showCheckmark: false,
-              labelStyle: TextStyle(color: s.liveCacheSecs == v ? kBg : kText, fontWeight: FontWeight.w700),
-              onSelected: (_) => s.setLiveCache(v),
-            ),
-        ]),
         const SizedBox(height: 8),
         const Text("Les films téléchargés sont enregistrés dans l'espace de l'application (visible dans l'app Fichiers sur iPad / iPhone).",
             style: TextStyle(color: kMuted, fontSize: 12.5)),
+        const AdvancedSettings(),
+        _h('Administration depuis un navigateur'),
+        const AdminCard(),
+        _h('Maintenance'),
+        const MaintenanceCard(),
         _h('Profils et stockage'),
         Wrap(spacing: 10, runSpacing: 10, children: [
           OutlinedButton.icon(

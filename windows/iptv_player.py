@@ -50,7 +50,7 @@ Qt = QtCore.Qt
 #  Chemins & constantes
 # --------------------------------------------------------------------------- #
 APP_TITLE = "IPTV Player"
-APP_VERSION = "2.7"
+APP_VERSION = "2.8"
 APP_AUTHOR = "Asvind"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = os.path.dirname(os.path.abspath(sys.executable if FROZEN else __file__))

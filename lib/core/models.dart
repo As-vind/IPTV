@@ -42,6 +42,16 @@ class Ep {
       );
 }
 
+/// Un des flux d'une chaîne regroupée (SD, HD, FHD, 4K, secours).
+class Variant {
+  final String url;
+  final String name;
+  final int q; // 4 = 4K, 3 = FHD, 2 = HD, 1 = SD, 0 = inconnue
+  final String group;
+  final List<String> opts;
+  const Variant({required this.url, required this.name, required this.q, this.group = '', this.opts = const []});
+}
+
 class Item {
   String name;
   String url;
@@ -63,6 +73,11 @@ class Item {
   String q = '';
   String ratingStr = '';
   String sub = '';
+  // Chaînes regroupées (non sauvegardé)
+  List<Variant> variants = [];
+  String ckey = '';
+  String qlabels = '';
+  bool grouped = false;
 
   Item({
     required this.name,
@@ -93,6 +108,11 @@ class Item {
   }
 
   int get addedInt => int.tryParse(added) ?? 0;
+
+  Item copy() => Item(
+        name: name, url: url, logo: logo, group: group, kind: kind, country: country, streamId: streamId,
+        seriesId: seriesId, rating: rating, added: added, tvgId: tvgId, opts: opts, episodes: episodes,
+      );
 
   Map<String, dynamic> toJson() => {
         'name': name, 'url': url, 'logo': logo, 'group': group, 'kind': kind, 'country': country,
@@ -142,6 +162,9 @@ class PlayItem {
   final String streamId;
   final List<String> opts;
   final Map<String, dynamic>? series; // {url, name, logo, season, num, ep_name}
+  final List<Variant> variants; // chaînes regroupées : tous les flux
+  final String ckey;
+  final String tvgId;
 
   const PlayItem({
     required this.name,
@@ -152,11 +175,15 @@ class PlayItem {
     this.streamId = '',
     this.opts = const [],
     this.series,
+    this.variants = const [],
+    this.ckey = '',
+    this.tvgId = '',
   });
 
   factory PlayItem.of(Item it) => PlayItem(
         name: it.kind == 'live' ? (it.title.isEmpty ? it.name : it.title) : it.name,
         url: it.url, kind: it.kind, logo: it.logo, group: it.group, streamId: it.streamId, opts: it.opts,
+        variants: it.variants, ckey: it.ckey, tvgId: it.tvgId,
       );
 
   Map<String, dynamic> toJson() => {

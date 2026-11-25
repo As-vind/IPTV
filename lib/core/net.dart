@@ -42,6 +42,13 @@ Future<String> getText(String url, {Map<String, String>? headers, Duration timeo
   return decodeBody(r.bodyBytes);
 }
 
+Future<List<int>> getBytes(String url, {Map<String, String>? headers, Duration timeout = const Duration(seconds: 90)}) async {
+  final h = {'User-Agent': kUserAgent, 'Accept': '*/*', ...?headers};
+  final r = await _client.get(Uri.parse(url), headers: h).timeout(timeout);
+  if (r.statusCode >= 400) throw HttpStatusError(r.statusCode, url, r.headers['retry-after']);
+  return r.bodyBytes;
+}
+
 /// Erreur HTTP avec son code (pour savoir s'il faut réessayer).
 class HttpStatusError extends HttpException {
   final int code;
