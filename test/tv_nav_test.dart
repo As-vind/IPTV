@@ -23,7 +23,7 @@ String focusName() {
   return ctx.widget.runtimeType.toString();
 }
 
-bool editing() => FocusManager.instance.primaryFocus?.context?.widget is EditableText;
+bool editing() => FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<EditableText>() != null;
 
 Future<void> key(WidgetTester t, LogicalKeyboardKey k) async {
   await t.sendKeyEvent(k);
@@ -153,7 +153,8 @@ void main() {
       ),
     ));
     await t.tap(find.text('ouvrir'));
-    await t.pumpAndSettle();
+    await t.pump(const Duration(milliseconds: 400));
+    await t.pump(const Duration(milliseconds: 400));
     final addr = t.getRect(find.text('http://192.168.1.50:8686'));
     expect(addr.bottom <= 540, true, reason: 'adresse hors écran : $addr');
     expect(find.text('Annuler'), findsOneWidget);
