@@ -130,7 +130,10 @@ class AppState extends ChangeNotifier {
     _ensureSettings();
     stats = StreamStats(Map<String, dynamic>.from((cfg['stream_stats'] as Map?) ?? {}));
     cfg['stream_stats'] = stats.d;
-    (cores, ramMb, hwTier) = hardware();
+    final hw = hardware();
+    cores = hw.$1;
+    ramMb = hw.$2;
+    hwTier = hw.$3;
     if ((cfg['profiles'] as List?)?.isNotEmpty != true) {
       cfg['profiles'] = [
         {'id': 'p1', 'name': 'Principal', 'color': kAvatarColors[0], 'emoji': '🦤', 'kids': false, 'pin': ''}

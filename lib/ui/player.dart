@@ -150,7 +150,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _variants = it.variants.isNotEmpty ? it.variants : [Variant(url: it.url, name: it.name, q: qualityOf(it.name, it.group), opts: it.opts)];
     _vidx = _live ? _choose() : 0;
     await _openUrl();
-    final pr = _s.progressOf(it.url);    final pr = _s.progressOf(it.url);
+    final pr = _s.progressOf(it.url);
     if (resume && !_live && pr != null && pr['done'] != true && ((pr['pos'] as num?) ?? 0) > 30000) {
       final target = Duration(milliseconds: (pr['pos'] as num).toInt());
       try {
