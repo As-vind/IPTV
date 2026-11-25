@@ -256,7 +256,11 @@ class _EditorState extends State<_Editor> {
   void initState() {
     super.initState();
     _show = !widget.obscure;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _f.requestFocus());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _f.requestFocus();
+      // OK a été pressé volontairement : on affiche le clavier (certaines TV ne l'ouvrent pas d'elles-mêmes)
+      WidgetsBinding.instance.addPostFrameCallback((_) => SystemChannels.textInput.invokeMethod<void>('TextInput.show'));
+    });
   }
 
   @override

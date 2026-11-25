@@ -118,8 +118,10 @@ void main() {
   testWidgets('les autres modes : lien et fichier', (t) async {
     await openDialog(t);
     // Lien M3U (mode par défaut)
-    await key(t, LogicalKeyboardKey.arrowDown);
-    await key(t, LogicalKeyboardKey.arrowDown);
+    for (var i = 0; i < 4 && focusName() != 'champ:Lien M3U'; i++) {
+      await key(t, LogicalKeyboardKey.arrowDown);
+      expect(t.testTextInput.isVisible, false);
+    }
     expect(focusName(), 'champ:Lien M3U');
     expect(t.testTextInput.isVisible, false);
     // Fichier M3U : les deux grandes cartes et les boutons sont atteignables

@@ -96,7 +96,7 @@ class AppState extends ChangeNotifier {
   final Map<String, Map<String, dynamic>> guides = {};
   final Map<String, Future<void>> _guideLoading = {};
   AdminServer? admin;
-  Timer? _maintT;
+  Timer? _maintT; // ignore: unused_field
   /// Liste complète (avant catégories masquées et regroupement) : administration web.
   List<Item> get rawItems => _raw;
   Map<String, dynamic>? profile;
