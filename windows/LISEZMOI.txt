@@ -1,4 +1,4 @@
-IPTV Player 2.7 — conçu par Asvind
+IPTV Player 2.8 — conçu par Asvind
 ===================================
 
 INSTALLATION
@@ -18,6 +18,26 @@ Paramètres Windows > Applications > Applications installées > IPTV Player > D�
 ou menu Démarrer > IPTV Player > Désinstaller IPTV Player.
 
 Vos sources, favoris et historique sont dans %APPDATA%\IPTVPlayer.
+
+NOUVEAUTÉS 2.8 — lecteur intelligent et administration depuis un navigateur
+- Chaînes en double regroupées : « TF1 SD / HD / FHD / 4K » n'apparaît plus qu'une fois. Les versions régionales,
+  de langue (VF, AR…) et les « +1 » restent séparées. Bouton « ⚡ Qualité » dans le lecteur : AUTO, 4K, FHD, HD, SD.
+- Qualité AUTO : la meilleure possible selon l'écran, l'ordinateur, le débit mesuré et la fiabilité de chaque flux.
+- Anti-coupure : si l'image se fige, reconnexion automatique, puis bascule vers un autre flux ou une qualité
+  inférieure ; retour à la meilleure qualité quand la connexion est stable depuis 5 minutes.
+- Profils de lecture (Paramètres) : AUTO, Performance (zapping rapide), Équilibré, Anti-freeze, Personnalisé.
+- Image et son (bouton 🎚 pendant la lecture) : luminosité, contraste, saturation, netteté, format d'image,
+  désentrelacement, décalage du son, normalisation du volume. Paramètres : accélération matérielle, HDR,
+  résolution maximale, langue audio et sous-titres préférés, fréquence de l'écran adaptée au flux (plein écran).
+- Diagnostic en temps réel (bouton 📊 ou touche I) : résolution, codecs, images/s, débit, mémoire tampon,
+  latence de zapping, processeur, mémoire, coupures et reconnexions, état des flux.
+- Guide TV pour les listes M3U : celui annoncé par la liste, ou le vôtre (Paramètres → Sources → 📺 Guide TV).
+- Administration depuis un navigateur (Paramètres) : depuis un téléphone, une tablette ou un autre PC du même
+  réseau (adresse + QR code, protégé par un code PIN, jamais exposé sur Internet) : glisser-déposer de fichiers M3U,
+  ajout de listes par lien ou compte Xtream, catégories masquées et ordre d'affichage, doublons, favoris, guide TV,
+  tous les réglages, journal technique, sauvegarde et restauration de la configuration.
+- Entretien automatique : actualisation des listes (24 h par défaut), sauvegarde quotidienne de la configuration,
+  nettoyage du cache, vérification des chaînes favorites, favoris conservés quand les liens de la liste changent.
 
 NOUVEAUTÉS 2.7 — fichiers M3U et pilotage au clavier / à la télécommande
 - Ajouter une source : nouvel onglet « Fichier M3U ». Déposez le fichier dans le cadre (ou cliquez pour le choisir).

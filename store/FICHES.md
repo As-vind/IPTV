@@ -32,6 +32,13 @@ Vous ajoutez vous-même la liste M3U (lien ou fichier) ou le compte Xtream Codes
 • Profils « Qui regarde ? » avec avatar, code PIN et profil enfant
 • Ma liste, historique et reprise de lecture par profil
 
+**Lecture intelligente**
+• Chaînes en double regroupées (SD, HD, FHD, 4K) avec qualité automatique ou au choix
+• Anti-coupure : reconnexion automatique et bascule vers un flux de secours
+• Profils AUTO, Performance, Équilibré, Anti-freeze, Personnalisé ; diagnostic en temps réel
+• Réglages image (luminosité, contraste, saturation, format) et son (synchro, normalisation)
+• Administration depuis un navigateur du même réseau (code PIN, QR code)
+
 **Lecture**
 • Pistes audio et sous-titres, épisode suivant automatique
 • Pré-chargement d'1, 5 ou 10 minutes pour les connexions lentes
