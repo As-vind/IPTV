@@ -356,7 +356,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
           hint: const Text('Aucune source'),
           items: [
             for (final x in srcs)
-              DropdownMenuItem(value: '${x['id']}', child: Text('${x['type'] == 'xtream' ? '📡' : '📄'} ${x['name']}', overflow: TextOverflow.ellipsis)),
+              DropdownMenuItem(value: '${x['id']}', child: Text('${x['type'] == 'xtream' ? '📡' : x['type'] == 'jellyfin' ? '🏠' : '📄'} ${x['name']}', overflow: TextOverflow.ellipsis)),
             const DropdownMenuItem(value: '__add__', child: Text('＋ Ajouter une source…')),
             const DropdownMenuItem(value: '__manage__', child: Text('✎ Modifier / supprimer les sources…')),
           ],

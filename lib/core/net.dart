@@ -89,3 +89,11 @@ Future<dynamic> getJson(String url, {Map<String, String>? headers, Duration time
   if (txt.length > 200000) return compute(_jsonDecode, txt);
   return jsonDecode(txt);
 }
+
+/// POST JSON (connexion Jellyfin…). Renvoie le JSON décodé.
+Future<dynamic> postJson(String url, Object body, {Map<String, String>? headers, Duration timeout = const Duration(seconds: 30)}) async {
+  final h = {'User-Agent': kUserAgent, 'Content-Type': 'application/json', 'Accept': 'application/json', ...?headers};
+  final r = await _client.post(Uri.parse(url), headers: h, body: jsonEncode(body)).timeout(timeout);
+  if (r.statusCode >= 400) throw HttpStatusError(r.statusCode, url, r.headers['retry-after']);
+  return jsonDecode(decodeBody(r.bodyBytes));
+}

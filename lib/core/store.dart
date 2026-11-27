@@ -15,6 +15,7 @@ import 'countries.dart';
 import 'system.dart';
 import 'downloads.dart';
 import 'imgcache.dart';
+import 'jellyfin.dart';
 import 'm3u.dart';
 import 'meta.dart';
 import 'models.dart';
@@ -384,6 +385,15 @@ class AppState extends ChangeNotifier {
           }
           error = "Le serveur n'a pas envoyé les ${cl.failed.keys.map((k) => names[k]).join(' et ')}"
               "${kept.isNotEmpty ? ' (ancienne liste conservée)' : ''}. Réessayez avec « Actualiser » dans quelques minutes.";
+        }
+      } else if (src['type'] == 'jellyfin') {
+        final cl = JellyfinClient.of(src);
+        (its, info) = await cl.loadAll();
+        // jeton de connexion gardé : les liens de lecture enregistrés restent valides
+        if (src['token'] != cl.token || src['uid'] != cl.uid) {
+          src['token'] = cl.token;
+          src['uid'] = cl.uid;
+          save();
         }
       } else {
         final loc = '${src['url']}'.trim();

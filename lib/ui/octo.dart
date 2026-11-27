@@ -1,4 +1,6 @@
 // Cases et rangées façon OCTO+ (mêmes formats que la version Windows 2.6).
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../core/imgcache.dart';
@@ -30,6 +32,16 @@ Size _base(CardStyle s) => switch (s) {
 Size cardImageSize(CardStyle s, double k) {
   final b = _base(s);
   return Size(b.width * k, b.height * k);
+}
+
+/// Ajuste légèrement l'échelle (±20 % au plus) pour qu'un nombre entier de cases tienne pile dans la largeur.
+double fitRowK(CardStyle s, double k, double avail, double gap, int count) {
+  final cw = _base(s).width * k;
+  if (!avail.isFinite || avail <= 0 || cw <= 0) return k;
+  final n = max(1, ((avail + gap) / (cw + gap)).round());
+  if (count < n) return k; // rangée courte : taille normale, alignée à gauche
+  final target = (avail - (n - 1) * gap) / n;
+  return k * (target / cw).clamp(.8, 1.2);
 }
 
 /// Hauteur de la case avec le texte éventuel en dessous.
@@ -515,17 +527,23 @@ class OctoRow extends StatelessWidget {
               ]),
             ),
           ),
-        SizedBox(
-          height: cardHeight(style, k) + 6,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(horizontal: pad),
-            itemCount: items.length,
-            clipBehavior: Clip.none,
-            separatorBuilder: (_, __) => SizedBox(width: 14 * clampK(k, .6, 1.3)),
-            itemBuilder: (c, i) => OctoCard(style: style, d: items[i], k: k),
-          ),
-        ),
+        LayoutBuilder(builder: (context, cons) {
+          // Rangée « au cordeau » : un nombre entier de cases remplit exactement la largeur,
+          // quelle que soit la taille ou le format de l'écran (plus de case coupée au bord).
+          final gap = 14 * clampK(k, .6, 1.3);
+          final kk = fitRowK(style, k, cons.maxWidth - 2 * pad, gap, items.length);
+          return SizedBox(
+            height: cardHeight(style, kk) + 6,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(horizontal: pad),
+              itemCount: items.length,
+              clipBehavior: Clip.none,
+              separatorBuilder: (_, __) => SizedBox(width: gap),
+              itemBuilder: (c, i) => OctoCard(style: style, d: items[i], k: kk),
+            ),
+          );
+        }),
       ]),
     );
   }

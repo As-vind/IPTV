@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/meta.dart';
+import '../core/jellyfin.dart';
 import '../core/playlist_import.dart';
 import 'advanced.dart';
 import 'tv_field.dart';
@@ -53,7 +54,7 @@ Future<void> showSourceDialog(BuildContext context,
   }
 }
 
-enum _Mode { url, file, xtream }
+enum _Mode { url, file, xtream, jellyfin }
 
 class _SourceDialog extends StatefulWidget {
   final Map<String, dynamic>? replace;
@@ -73,7 +74,12 @@ class _SourceDialogState extends State<_SourceDialog> {
     final e = widget.edit;
     if (e == null) return;
     _name.text = '${e['name'] ?? ''}';
-    if (e['type'] == 'xtream') {
+    if (e['type'] == 'jellyfin') {
+      _mode = _Mode.jellyfin;
+      _server.text = '${e['server'] ?? ''}';
+      _user.text = '${e['user'] ?? ''}';
+      _pass.text = '${e['password'] ?? ''}';
+    } else if (e['type'] == 'xtream') {
       _mode = _Mode.xtream;
       _server.text = '${e['server'] ?? ''}';
       _user.text = '${e['user'] ?? ''}';
@@ -235,6 +241,32 @@ class _SourceDialogState extends State<_SourceDialog> {
         Navigator.pop(context, {
           'id': id, 'type': 'm3u', 'name': _name.text.trim().isEmpty ? (u?.host ?? 'Liste M3U') : _name.text.trim(), 'url': url,
         });
+      case _Mode.jellyfin:
+        final srv = _server.text.trim();
+        if (srv.isEmpty || _user.text.trim().isEmpty) {
+          return setState(() => _err = 'Adresse du serveur Jellyfin et identifiant requis.');
+        }
+        setState(() {
+          _busy = true;
+          _err = null;
+        });
+        // vérification immédiate de la connexion : l'erreur s'affiche ici plutôt qu'après l'ajout
+        final probe = <String, dynamic>{'server': srv, 'user': _user.text.trim(), 'password': _pass.text, 'device': widget.edit?['device']};
+        try {
+          final cl = JellyfinClient.of(probe);
+          await cl.login();
+          if (!mounted) return;
+          Navigator.pop(context, {
+            'id': id, 'type': 'jellyfin',
+            'name': _name.text.trim().isEmpty ? 'Jellyfin' : _name.text.trim(),
+            'server': cl.base, 'user': _user.text.trim(), 'password': _pass.text,
+            'token': cl.token, 'uid': cl.uid, 'device': cl.deviceId,
+          });
+        } catch (e) {
+          if (mounted) setState(() => _err = e is JellyfinError ? e.message : 'Serveur Jellyfin injoignable : $e');
+        } finally {
+          if (mounted) setState(() => _busy = false);
+        }
       case _Mode.xtream:
         if (_server.text.trim().isEmpty || _user.text.trim().isEmpty || _pass.text.trim().isEmpty) {
           return setState(() => _err = 'Serveur, identifiant et mot de passe requis.');
@@ -336,6 +368,7 @@ class _SourceDialogState extends State<_SourceDialog> {
                 _modeChip(_Mode.url, Icons.link_rounded, 'Lien M3U', autofocus: !widget.file),
                 _modeChip(_Mode.file, Icons.insert_drive_file_outlined, 'Fichier M3U', autofocus: widget.file),
                 _modeChip(_Mode.xtream, Icons.satellite_alt, 'Compte Xtream'),
+                _modeChip(_Mode.jellyfin, Icons.home_work_outlined, 'Jellyfin (local)'),
               ]),
               const SizedBox(height: 14),
               TvTextField(controller: _name, label: 'Nom (facultatif)'),
@@ -350,7 +383,19 @@ class _SourceDialogState extends State<_SourceDialog> {
               _phoneButton(),
             ] else if (_mode == _Mode.file)
               ..._fileSection()
-            else ...[
+            else if (_mode == _Mode.jellyfin) ...[
+              TvTextField(controller: _server, keyboardType: TextInputType.url, label: 'Adresse du serveur Jellyfin',
+                  hint: 'http://192.168.1.20:8096'),
+              const SizedBox(height: 10),
+              TvTextField(controller: _user, label: 'Utilisateur Jellyfin'),
+              const SizedBox(height: 10),
+              TvTextField(controller: _pass, obscure: true, label: 'Mot de passe (vide si aucun)'),
+              const SizedBox(height: 8),
+              if (_busy) const LinearProgressIndicator(minHeight: 3, color: kAccent, backgroundColor: Colors.white12),
+              const SizedBox(height: 6),
+              const Text('Vos films et séries personnels (disque, NAS…) servis par Jellyfin sur votre réseau. '
+                  'Lecture directe du fichier d\'origine, sans conversion.', style: TextStyle(color: kMuted, fontSize: 12.5)),
+            ] else ...[
               TvTextField(controller: _server, keyboardType: TextInputType.url, label: 'Serveur', hint: 'http://serveur.exemple.com:8080'),
               const SizedBox(height: 10),
               TvTextField(controller: _user, label: 'Identifiant'),
@@ -449,10 +494,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Card(
             color: kCard2,
             child: ListTile(
-              leading: Icon(src['type'] == 'xtream' ? Icons.satellite_alt : Icons.playlist_play,
+              leading: Icon(src['type'] == 'xtream' ? Icons.satellite_alt : src['type'] == 'jellyfin' ? Icons.home_work_outlined : Icons.playlist_play,
                   color: s.currentSource?['id'] == src['id'] ? kAccent : kMuted),
               title: Text('${src['name']}'),
-              subtitle: Text(src['type'] == 'xtream' ? 'Compte Xtream Codes' : (src['file'] != null ? 'Fichier M3U · ${src['file']}' : 'Lien M3U'),
+              subtitle: Text(src['type'] == 'xtream' ? 'Compte Xtream Codes' : src['type'] == 'jellyfin' ? 'Jellyfin · ${src['server']}' : (src['file'] != null ? 'Fichier M3U · ${src['file']}' : 'Lien M3U'),
                   style: const TextStyle(color: kMuted)),
               onTap: () => s.setSource('${src['id']}'),
               trailing: Wrap(children: [
@@ -675,7 +720,7 @@ class _SourcesManager extends StatelessWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: .06), borderRadius: BorderRadius.circular(14)),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${src['type'] == 'xtream' ? '📡' : '📄'}  ${src['name']}${src['id'] == cur ? '   · en cours' : ''}',
+                  Text('${src['type'] == 'xtream' ? '📡' : src['type'] == 'jellyfin' ? '🏠' : '📄'}  ${src['name']}${src['id'] == cur ? '   · en cours' : ''}',
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                   Text(
                       src['type'] == 'xtream'
