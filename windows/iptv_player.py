@@ -582,6 +582,137 @@ def file_source(path, name=""):
             "url": import_playlist(sid, path), "file": os.path.basename(path), "file_orig": os.path.abspath(path)}
 
 
+class JellyfinError(RuntimeError):
+    pass
+
+
+class JellyfinClient:
+    """Serveur Jellyfin (médiathèque locale) : films, séries et épisodes, lecture directe des fichiers."""
+
+    def __init__(self, src):
+        srv = (src.get("server") or "").strip()
+        if "://" not in srv:
+            srv = "http://" + srv
+        srv = re.sub(r"/web(/index\.html)?.*$", "", srv.rstrip("/")).rstrip("/")
+        self.base, self.user, self.pwd = srv, (src.get("user") or "").strip(), src.get("password") or ""
+        self.token, self.uid = src.get("token") or "", src.get("uid") or ""
+        if not src.get("device"):
+            src["device"] = uuid.uuid4().hex[:16]
+        self.device = src["device"]
+
+    def _headers(self):
+        auth = (f'MediaBrowser Client="Asvind IPTV", Device="IPTV Player", DeviceId="{self.device}", Version="2.8"'
+                + (f', Token="{self.token}"' if self.token else ""))
+        h = {"X-Emby-Authorization": auth, "Accept": "application/json"}
+        if self.token:
+            h["X-Emby-Token"] = self.token
+        return h
+
+    def login(self):
+        body = json.dumps({"Username": self.user, "Pw": self.pwd}).encode()
+        h = dict(self._headers(), **{"Content-Type": "application/json", "User-Agent": USER_AGENT})
+        req = urllib.request.Request(self.base + "/Users/AuthenticateByName", data=body, headers=h, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=30, context=_SSL_CTX) as r:
+                d = json.loads(decode_text(r.read()))
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 401):
+                raise JellyfinError("Jellyfin : identifiant ou mot de passe refusé.")
+            raise JellyfinError(f"Jellyfin : le serveur a répondu {e.code}.")
+        except (urllib.error.URLError, OSError) as e:
+            raise JellyfinError(f"Serveur Jellyfin injoignable : {getattr(e, 'reason', e)}")
+        self.token = d.get("AccessToken") or ""
+        self.uid = (d.get("User") or {}).get("Id") or ""
+        if not self.token or not self.uid:
+            raise JellyfinError("Réponse de connexion Jellyfin inattendue.")
+
+    def _get(self, path, timeout=120, **q):
+        if not self.token:
+            self.login()
+        url = self.base + path + ("?" + urllib.parse.urlencode(q) if q else "")
+        try:
+            return json.loads(decode_text(http_get(url, timeout=timeout, headers=self._headers())))
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                raise
+            self.token = ""
+            self.login()
+            return json.loads(decode_text(http_get(url, timeout=timeout, headers=self._headers())))
+
+    def stream_url(self, iid):
+        return f"{self.base}/Videos/{iid}/stream?static=true&api_key={self.token}"
+
+    def image(self, iid, typ="Primary", w=500, tag=""):
+        return f"{self.base}/Items/{iid}/Images/{typ}?maxWidth={w}&quality=90" + (f"&tag={tag}" if tag else "")
+
+    @staticmethod
+    def _items(r):
+        lst = r.get("Items") if isinstance(r, dict) else r
+        return [x for x in (lst or []) if isinstance(x, dict)]
+
+    @staticmethod
+    def _group(m, lib):
+        g = [x for x in (m.get("Genres") or []) if isinstance(x, str)]
+        return g[0] if g else lib
+
+    @staticmethod
+    def _added(m):
+        d = str(m.get("DateCreated") or "")[:19]
+        try:
+            return str(int(time.mktime(time.strptime(d, "%Y-%m-%dT%H:%M:%S"))))
+        except ValueError:
+            return ""
+
+    def load_all(self):
+        if not self.token or not self.uid:
+            self.login()
+        out, by_id = [], {}
+        n_m = n_s = n_e = 0
+        for v in self._items(self._get(f"/Users/{self.uid}/Views")):
+            ct, lib, vid = v.get("CollectionType") or "", v.get("Name") or "Jellyfin", v.get("Id")
+            fields = "Genres,DateCreated,ProductionYear,CommunityRating"
+            if ct in ("movies", "homevideos", "musicvideos", ""):
+                types = "Movie" if ct in ("movies", "") else "Movie,Video,MusicVideo"
+                for m in self._items(self._get(f"/Users/{self.uid}/Items", ParentId=vid, Recursive="true",
+                                               IncludeItemTypes=types, Fields=fields, ImageTypeLimit="1")):
+                    iid = m.get("Id")
+                    year = f" ({m['ProductionYear']})" if m.get("ProductionYear") else ""
+                    out.append(make_item(f"{m.get('Name')}{year}", self.stream_url(iid),
+                                         logo=self.image(iid, tag=(m.get("ImageTags") or {}).get("Primary") or ""),
+                                         group=self._group(m, lib), kind="movie", stream_id="jf:" + iid,
+                                         rating=str(m.get("CommunityRating") or ""), added=self._added(m)))
+                    n_m += 1
+            elif ct == "tvshows":
+                for m in self._items(self._get(f"/Users/{self.uid}/Items", ParentId=vid, Recursive="true",
+                                               IncludeItemTypes="Series", Fields=fields, ImageTypeLimit="1")):
+                    iid = m.get("Id")
+                    it = make_item(m.get("Name"), "jellyfin-series:" + iid,
+                                   logo=self.image(iid, tag=(m.get("ImageTags") or {}).get("Primary") or ""),
+                                   group=self._group(m, lib), kind="series", series_id="jf:" + iid,
+                                   rating=str(m.get("CommunityRating") or ""), added=self._added(m))
+                    it["episodes"] = {}
+                    by_id[iid] = it
+                    out.append(it)
+                    n_s += 1
+                for e in self._items(self._get(f"/Users/{self.uid}/Items", timeout=240, ParentId=vid, Recursive="true",
+                                               IncludeItemTypes="Episode", Fields="Overview", ImageTypeLimit="1")):
+                    s = by_id.get(e.get("SeriesId"))
+                    if not s:
+                        continue
+                    iid = e.get("Id")
+                    sn = str(e.get("ParentIndexNumber") or 1)
+                    s["episodes"].setdefault(sn, []).append({
+                        "name": e.get("Name") or "", "num": int(e.get("IndexNumber") or 0), "url": self.stream_url(iid),
+                        "opts": [], "plot": e.get("Overview") or "", "runtime": int(e.get("RunTimeTicks") or 0) // 600000000,
+                        "still": self.image(iid, w=400) if (e.get("ImageTags") or {}).get("Primary") else ""})
+                    n_e += 1
+                for s in by_id.values():
+                    for lst in s["episodes"].values():
+                        lst.sort(key=lambda x: x["num"])
+        info = json.dumps({"type": "jellyfin", "server": self.base, "movies": n_m, "series": n_s, "episodes": n_e})
+        return out, info
+
+
 def fetch_source(src):
     if src.get("file_orig"):
         # le fichier d'origine a été modifié depuis l'import : on reprend la nouvelle version
@@ -593,6 +724,10 @@ def fetch_source(src):
             pass
     if src["type"] == "xtream":
         items, info = xtream_client(src).load_all()
+    elif src["type"] == "jellyfin":
+        cl = JellyfinClient(src)
+        items, info = cl.load_all()
+        src["token"], src["uid"] = cl.token, cl.uid  # jeton gardé : les liens enregistrés restent valides
     else:
         loc = src["url"].strip()
         if re.match(r"^https?://", loc, re.I):
@@ -897,7 +1032,8 @@ def series_meta(src, item, tmdb_key, lang):
     elif item.get("episodes"):
         for sn, lst in item["episodes"].items():
             seasons.append({"number": int(sn), "name": "", "poster": "",
-                            "episodes": [dict(e, plot="", runtime=0, still="", rating="") for e in lst]})
+                            "episodes": [dict(e, plot=e.get("plot") or "", runtime=e.get("runtime") or 0,
+                                              still=e.get("still") or "", rating=e.get("rating") or "") for e in lst]})
     seasons.sort(key=lambda s: s["number"])
     if tmdb_key:
         tm = TMDB(tmdb_key, lang)
@@ -1537,9 +1673,11 @@ class CardDelegate(QtWidgets.QStyledItemDelegate):
         super().__init__(win)
         self.win, self.style = win, style
         self._blur_cache = {}
+        self.fit = 1.0  # ajustement « au cordeau » fixé par la vue
 
     def sizeHint(self, option, index):
-        return card_size(self.style)
+        s = card_size(self.style)
+        return QtCore.QSize(int(s.width() * self.fit), int(s.height() * self.fit))
 
     def paint(self, p, option, index):
         it = index.data(ITEM_ROLE)
@@ -2152,7 +2290,9 @@ class CardView(QtWidgets.QListView):
         self.win, self.style, self.horizontal = win, style, horizontal
         self.model_ = CardModel(win.images, self)
         self.setModel(self.model_)
-        self.setItemDelegate(CardDelegate(win, style))
+        self._fit = 1.0
+        self._delegate = CardDelegate(win, style)
+        self.setItemDelegate(self._delegate)
         self.setMouseTracking(True)
         self.setUniformItemSizes(True)
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
@@ -2165,14 +2305,14 @@ class CardView(QtWidgets.QListView):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
         self._style, self._horizontal = style, horizontal
-        self.setGridSize(card_size(style))
+        self.setGridSize(self._cell())
         UI.changed.connect(self._rescale)
         if horizontal:
             self.setFlow(QtWidgets.QListView.Flow.LeftToRight)
             self.setWrapping(False)
             self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self.setFixedHeight(card_size(style).height() + 6)
+            self.setFixedHeight(self._cell().height() + 6)
         else:
             self.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
             self.setResizeMode(QtWidgets.QListView.ResizeMode.Adjust)
@@ -2182,18 +2322,63 @@ class CardView(QtWidgets.QListView):
         self.clicked.connect(lambda idx: self.item_clicked.emit(idx.data(ITEM_ROLE)))
         self.activated.connect(lambda idx: None)
 
+    def _cell(self):
+        s = card_size(self._style)
+        w = getattr(self, "_cellw", 0) or int(s.width() * self._fit)
+        return QtCore.QSize(w, int(s.height() * w / max(1, s.width())))
+
+    def _compute_fit(self):
+        """Un nombre entier de cases remplit exactement la largeur (rangées et grilles), sans case coupée au bord,
+        quelle que soit la taille ou le format de l'écran (4/3, 16/9, 21/9…). Ajustement de ±30 % au plus."""
+        sb = 0 if self._horizontal else self.verticalScrollBar().sizeHint().width()
+        avail = self.width() - sb - 2
+        base = card_size(self._style).width()
+        if avail < 100 or base <= 0:
+            return 1.0, 0
+        x = avail / base
+        best, score, best_n = 1.0, None, 1
+        for n in {max(1, int(x)), max(1, int(x)) + 1}:
+            ratio = avail / (n * base)
+            sc = abs(math.log(ratio))
+            if score is None or sc < score:
+                best, score, best_n = ratio, sc, n
+        if self._horizontal and self.model_.rowCount() < best_n:
+            return 1.0, 0  # rangée courte : taille normale
+        if not 0.7 <= best <= 1.3:
+            return max(0.7, min(1.3, best)), 0
+        return best, int(avail // best_n)  # largeur entière : n cases tombent pile sur le bord
+
+    def _apply_fit(self, force=False):
+        f, cw = self._compute_fit()
+        if not force and cw == getattr(self, "_cellw", 0) and abs(f - self._fit) < 0.004:
+            return
+        self._cellw = cw
+        self._fit = self._delegate.fit = f
+        self.setGridSize(self._cell())
+        if self._horizontal:
+            self.setFixedHeight(self._cell().height() + 6)
+        self.doItemsLayout()
+        self.viewport().update()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        try:
+            self._apply_fit()
+        except RuntimeError:
+            pass
+
     def _rescale(self):
         try:
-            self.setGridSize(card_size(self._style))
-            if self._horizontal:
-                self.setFixedHeight(card_size(self._style).height() + 6)
-            self.doItemsLayout()
-            self.viewport().update()
+            self._apply_fit(force=True)
         except RuntimeError:
             pass
 
     def set_items(self, items):
         self.model_.set_items(items)
+        try:
+            self._apply_fit()
+        except RuntimeError:
+            pass
 
     def wheelEvent(self, e):
         if self.horizontal:
@@ -4740,7 +4925,7 @@ class DropZone(QtWidgets.QFrame):
 
 
 class SourceDialog(QtWidgets.QDialog):
-    TAB_FILE, TAB_URL, TAB_XTREAM = 0, 1, 2
+    TAB_FILE, TAB_URL, TAB_XTREAM, TAB_JELLY = 0, 1, 2, 3
 
     def __init__(self, parent=None, start_tab=None, replace=None):
         super().__init__(parent)
@@ -4806,9 +4991,31 @@ class SourceDialog(QtWidgets.QDialog):
         f2.addRow("Mot de passe", self.x_pass)
         f2.addRow("Format live", self.x_ext)
         self.tabs.addTab(w2, "📡  Compte Xtream Codes")
+
+        w3 = QtWidgets.QWidget()
+        f3 = QtWidgets.QFormLayout(w3)
+        self.j_name = QtWidgets.QLineEdit()
+        self.j_name.setPlaceholderText("Jellyfin")
+        self.j_server = QtWidgets.QLineEdit()
+        self.j_server.setPlaceholderText("http://192.168.1.20:8096")
+        self.j_user = QtWidgets.QLineEdit()
+        self.j_pass = QtWidgets.QLineEdit()
+        self.j_pass.setEchoMode(QtWidgets.QLineEdit.EchoMode.Password)
+        self.j_pass.setPlaceholderText("vide si aucun")
+        f3.addRow("Nom", self.j_name)
+        f3.addRow("Serveur", self.j_server)
+        f3.addRow("Utilisateur", self.j_user)
+        f3.addRow("Mot de passe", self.j_pass)
+        hint3 = QtWidgets.QLabel("Vos films et séries personnels (disque, NAS…) servis par Jellyfin sur votre réseau. "
+                                 "Lecture directe du fichier d'origine, sans conversion.")
+        hint3.setWordWrap(True)
+        hint3.setStyleSheet("color:#8b91a3;")
+        f3.addRow(hint3)
+        self.tabs.addTab(w3, "🏠  Jellyfin (local)")
         if replace:
             self.tabs.setTabVisible(self.TAB_URL, False)
             self.tabs.setTabVisible(self.TAB_XTREAM, False)
+            self.tabs.setTabVisible(self.TAB_JELLY, False)
         self.tabs.setCurrentIndex(self.TAB_URL if start_tab is None and not replace else (start_tab or 0))
 
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok |
@@ -4889,6 +5096,24 @@ class SourceDialog(QtWidgets.QDialog):
                                       "password": q["password"][0], "live_ext": "ts"}
             else:
                 self.result_source = {"id": sid, "type": "m3u", "name": name or pu.netloc or "Liste M3U", "url": url}
+        elif tab == self.TAB_JELLY:
+            server, user = self.j_server.text().strip(), self.j_user.text().strip()
+            if not (server and user):
+                QtWidgets.QMessageBox.warning(self, APP_TITLE, "Adresse du serveur Jellyfin et utilisateur requis.")
+                return
+            src = {"id": sid, "type": "jellyfin", "name": self.j_name.text().strip() or "Jellyfin",
+                   "server": server, "user": user, "password": self.j_pass.text()}
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+            try:
+                cl = JellyfinClient(src)
+                cl.login()  # vérification immédiate : l'erreur s'affiche ici plutôt qu'après l'ajout
+            except JellyfinError as e:
+                QtWidgets.QApplication.restoreOverrideCursor()
+                QtWidgets.QMessageBox.warning(self, APP_TITLE, str(e))
+                return
+            QtWidgets.QApplication.restoreOverrideCursor()
+            src.update(server=cl.base, token=cl.token, uid=cl.uid)
+            self.result_source = src
         else:
             server, user, pwd = self.x_server.text().strip(), self.x_user.text().strip(), self.x_pass.text().strip()
             if not (server and user and pwd):
@@ -5053,8 +5278,9 @@ class SettingsPage(ScrollPage):
         self.sources.clear()
         for s in self.win.cfg["sources"]:
             cur = self.win.current_source and self.win.current_source["id"] == s["id"]
-            it = QtWidgets.QListWidgetItem(("● " if cur else "   ") + ("📡 " if s["type"] == "xtream" else "📄 ")
+            it = QtWidgets.QListWidgetItem(("● " if cur else "   ") + ("📡 " if s["type"] == "xtream" else "🏠 " if s["type"] == "jellyfin" else "📄 ")
                                            + s["name"] + ("   —   Xtream Codes" if s["type"] == "xtream" else
+                                                          f"   —   Jellyfin ({s.get('server', '')})" if s["type"] == "jellyfin" else
                                                           (f"   —   fichier M3U ({s['file']})" if s.get("file") else "   —   lien M3U")))
             it.setData(Qt.ItemDataRole.UserRole, s["id"])
             self.sources.addItem(it)
@@ -8656,7 +8882,7 @@ class MainWindow(QtWidgets.QMainWindow):
         cb.blockSignals(True)
         cb.clear()
         for s in self.cfg["sources"]:
-            cb.addItem(("📡 " if s["type"] == "xtream" else "📄 ") + s["name"], s["id"])
+            cb.addItem(("📡 " if s["type"] == "xtream" else "🏠 " if s["type"] == "jellyfin" else "📄 ") + s["name"], s["id"])
         cb.addItem("＋ Ajouter une source…", "__add__")
         idx = cb.findData(select_id or self.cfg.get("last_source"))
         if idx < 0 and self.cfg["sources"]:
