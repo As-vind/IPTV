@@ -15,9 +15,11 @@ class NetImg extends StatelessWidget {
   final bool circle;
   final int? cacheWidth;
   final Alignment alignment;
+  /// Image de secours (ex. affiche TMDB) quand l'image du fournisseur est absente ou cassée.
+  final Widget Function()? alt;
   const NetImg(this.url,
       {super.key, this.fallbackText = '', this.fit = BoxFit.cover, this.radius = 10, this.circle = false,
-      this.cacheWidth, this.alignment = Alignment.center});
+      this.cacheWidth, this.alignment = Alignment.center, this.alt});
 
   Widget _ph() => Container(
         decoration: const BoxDecoration(
@@ -31,14 +33,14 @@ class NetImg extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget img = url.isEmpty || !url.startsWith('http')
-        ? _ph()
+        ? (alt?.call() ?? _ph())
         : Image.network(url,
             fit: fit,
             alignment: alignment,
             cacheWidth: cacheWidth ?? 500,
             headers: const {'User-Agent': 'Mozilla/5.0'},
             gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => _ph(),
+            errorBuilder: (_, __, ___) => alt?.call() ?? _ph(),
             loadingBuilder: (c, child, p) => p == null ? child : _ph());
     if (circle) return ClipOval(child: img);
     return ClipRRect(borderRadius: BorderRadius.circular(radius), child: img);

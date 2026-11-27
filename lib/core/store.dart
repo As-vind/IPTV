@@ -89,6 +89,7 @@ class AppState extends ChangeNotifier {
   bool ready = false;
   String? error;
   int libVersion = 0;
+  final Set<String> _retried = {};
 
   Map<String, dynamic>? currentSource;
   late StreamStats stats;
@@ -296,6 +297,13 @@ class AppState extends ChangeNotifier {
         loading = false;
         ready = true;
         notifyListeners();
+        // liste Xtream enregistrée incomplète (chaînes ou séries manquantes) : nouvel essai en arrière-plan, une fois
+        if (src['type'] == 'xtream' && !_retried.contains(sid) &&
+            ((byKind['live'] ?? const []).isEmpty || (byKind['series'] ?? const []).isEmpty)) {
+          _retried.add(sid);
+          log('Liste enregistrée incomplète : nouveau chargement depuis le serveur');
+          unawaited(setSource(sid, force: true));
+        }
         return;
       } catch (_) {}
     }
@@ -306,7 +314,26 @@ class AppState extends ChangeNotifier {
       List<Item> its;
       String info;
       if (src['type'] == 'xtream') {
-        (its, info) = await XtreamClient.of(src).loadAll();
+        final cl = XtreamClient.of(src);
+        (its, info) = await cl.loadAll();
+        if (cl.failed.isNotEmpty) {
+          // rubrique non reçue : on garde celle de la dernière liste enregistrée au lieu de la vider
+          final names = {'live': 'chaînes TV', 'movie': 'films', 'series': 'séries'};
+          var kept = <Item>[];
+          try {
+            final cf = File(_cachePath(sid));
+            if (await cf.exists()) {
+              final (old, _) = await compute(_loadCache, cf.path);
+              kept = old.where((i) => cl.failed.containsKey(i.kind)).toList();
+            }
+          } catch (_) {}
+          its = [...its, ...kept];
+          for (final e in cl.failed.entries) {
+            log('⚠ ${names[e.key]} non reçues du serveur Xtream : ${e.value}');
+          }
+          error = "Le serveur n'a pas envoyé les ${cl.failed.keys.map((k) => names[k]).join(' et ')}"
+              "${kept.isNotEmpty ? ' (ancienne liste conservée)' : ''}. Réessayez avec « Actualiser » dans quelques minutes.";
+        }
       } else {
         final loc = '${src['url']}'.trim();
         if (RegExp(r'^https?://', caseSensitive: false).hasMatch(loc)) {

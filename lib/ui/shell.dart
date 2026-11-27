@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../core/store.dart';
 import 'browse.dart';
 import 'downloads_view.dart';
+import 'layout.dart';
 import 'octo.dart';
 import 'pages.dart';
 import 'scope.dart';
@@ -142,12 +143,12 @@ class _ShellState extends State<Shell> implements RootNavigator {
       _lastError = s.error;
       WidgetsBinding.instance.addPostFrameCallback((_) => toast(context, s.error!));
     }
-    final phone = isPhone(context);
+    final phone = layoutPhone(context);
     final size = MediaQuery.sizeOf(context);
     final collapsed = !phone && _collapsed(s, size.width);
     final landscapePhone = phone && size.width > size.height;
     final side = (!phone && !collapsed) ? _sidebarW(size.width) : (landscapePhone ? 76.0 : 0.0);
-    final k = scaleFor(size.width - side, size.height, phone);
+    final k = layoutK(context, size.width - side, size.height);
     final keys = _nav.map((e) => e.key).toList();
     final stack = IndexedStack(
       index: keys.indexOf(_root),

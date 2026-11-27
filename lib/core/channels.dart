@@ -394,6 +394,14 @@ const List<Setting> kSettings = [
   Setting('Audio', 'av_delay', 'Synchronisation audio / vidéo (ms)', 'int', 0, lo: -2000, hi: 2000),
   Setting('Audio', 'normalize', 'Normalisation automatique du volume', 'bool', false),
   Setting('Audio', 'passthrough', "Son multicanal vers l'ampli (passthrough)", 'bool', false),
+  Setting('Affichage', 'ui_device', "Type d'écran (disposition des cases)", 'choice', 'auto', choices: [
+    ('auto', 'Automatique'),
+    ('phone', 'Téléphone'),
+    ('tablet', 'Tablette'),
+    ('desktop', 'Ordinateur'),
+    ('tv', 'Télévision'),
+    ('projector', 'Vidéoprojecteur'),
+  ]),
   Setting('Affichage', 'ui_scale', "Taille de l'interface", 'choice', 'auto', choices: [
     ('auto', 'Automatique (réduite sur TV)'),
     ('70', '70 %'),

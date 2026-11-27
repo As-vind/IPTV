@@ -9,6 +9,7 @@ import '../core/store.dart';
 import '../core/text.dart';
 import 'browse.dart';
 import 'hero.dart';
+import 'layout.dart';
 import 'nav.dart';
 import 'octo.dart';
 import 'scope.dart';
@@ -108,6 +109,7 @@ List<CardData> resumeCards(BuildContext context, AppState s, {String? kind}) {
 }
 
 List<CardData> tileCards(BuildContext context, AppState s, String kind, {int limit = 24}) => [
+      if ((s.byKind[kind] ?? const []).isNotEmpty)
       for (final t in s.categories(kind, limit: limit, special: true))
         CardData(title: t.name, sub: t.sub, c1: t.special ? 0xFF2A3140 : 0, onTap: () => openCategory(context, t)),
     ];
@@ -229,9 +231,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
-    final phone = isPhone(context);
+    final phone = layoutPhone(context);
     final sz = MediaQuery.sizeOf(context);
-    final k = scaleFor(sz.width, sz.height, phone);
+    final k = layoutK(context, sz.width, sz.height);
     final cards = widget.cards ?? (_res == null ? null : matchCards(context, s, _res!, CardStyle.posterBig));
     final img = cardImageSize(CardStyle.posterBig, k);
     return UiK(
@@ -395,7 +397,7 @@ class _MediaPageState extends State<MediaPage> {
         PageTitle(title, top: widget.collapsed ? 96 : 38),
         Padding(
           padding: const EdgeInsets.all(34),
-          child: Text(s.loading ? 'Chargement…' : 'Rien ici pour le moment.', style: const TextStyle(color: kMuted)),
+          child: emptyLibrary(s, s.loading ? 'Chargement…' : 'Rien ici pour le moment.'),
         ),
       ]);
     }
@@ -483,7 +485,7 @@ class LivePage extends StatelessWidget {
       return ListView(children: [
         header,
         Padding(padding: const EdgeInsets.all(34),
-            child: Text(s.loading ? 'Chargement…' : 'Aucune chaîne pour le moment.', style: const TextStyle(color: kMuted))),
+            child: emptyLibrary(s, s.loading ? 'Chargement…' : 'Aucune chaîne pour le moment.')),
       ]);
     }
     final trending = s.trendingChannels(24);
@@ -598,4 +600,24 @@ class _Welcome extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Rubrique vide : message + bouton pour recharger la liste depuis le serveur.
+Widget emptyLibrary(AppState s, String msg) {
+  final src = s.currentSource;
+  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(msg, style: const TextStyle(color: kMuted)),
+    if (!s.loading && src != null) ...[
+      const SizedBox(height: 8),
+      const Text("Le serveur ne l'a peut-être pas envoyée au dernier chargement.", style: TextStyle(color: kMuted, fontSize: 13)),
+      const SizedBox(height: 14),
+      FilledButton.icon(
+        autofocus: true,
+        onPressed: () => s.setSource('${src['id']}', force: true),
+        icon: const Icon(Icons.refresh),
+        label: const Text('Recharger la liste'),
+      ),
+    ],
+  ]);
 }

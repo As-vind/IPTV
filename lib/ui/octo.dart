@@ -210,11 +210,36 @@ class OctoCard extends StatelessWidget {
 
   double get _dpr => 2.0;
 
-  Widget _img(String url, Size sz, {BoxFit fit = BoxFit.cover, String fallback = ''}) => SizedBox(
+  Widget _img(String url, Size sz, {BoxFit fit = BoxFit.cover, String fallback = '', Widget Function()? alt}) => SizedBox(
         width: sz.width,
         height: sz.height,
-        child: NetImg(url, fallbackText: fallback, fit: fit, radius: _radius,
+        child: NetImg(url, fallbackText: fallback, fit: fit, radius: _radius, alt: alt,
             cacheWidth: (sz.width * _dpr).clamp(120, 1000).toInt()),
+      );
+
+  /// Affiche TMDB quand l'image fournie par le fournisseur est absente ou ne se charge pas.
+  Widget Function()? _posterAlt(Size sz, String title) {
+    final lib = d.lib;
+    if (lib == null) return null;
+    return () => MetaBuilder(
+          item: lib,
+          builder: (m) {
+            final p = '${m?['poster'] ?? ''}';
+            final b = '${m?['backdrop'] ?? ''}';
+            final wide = sz.width > sz.height;
+            final u = wide ? (b.isNotEmpty ? hires(b, 'w780') : p) : (p.isNotEmpty ? hires(p, 'w500') : b);
+            if (u.isEmpty) return _titlePh(title);
+            return NetImg(u, fallbackText: title, radius: _radius, cacheWidth: (sz.width * _dpr).clamp(120, 1000).toInt());
+          },
+        );
+  }
+
+  Widget _titlePh(String title) => Container(
+        decoration: BoxDecoration(color: const Color(0xFF1C2130), borderRadius: BorderRadius.circular(_radius)),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(10),
+        child: Text(title, textAlign: TextAlign.center, maxLines: 4, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: kMuted, fontWeight: FontWeight.w700, fontSize: 13)),
       );
 
   Widget _body(BuildContext context, Size sz, Map<String, dynamic>? m) {
@@ -233,7 +258,7 @@ class OctoCard extends StatelessWidget {
           child: SizedBox(
             width: sz.width, height: sz.height,
             child: Stack(fit: StackFit.expand, children: [
-              _img(img, sz, fallback: title),
+              _img(img, sz, fallback: title, alt: m == null ? _posterAlt(sz, title) : null),
               _bottomShade(.45),
               if (style == CardStyle.land)
                 Positioned(
@@ -273,7 +298,7 @@ class OctoCard extends StatelessWidget {
           child: SizedBox(
             width: sz.width, height: sz.height,
             child: Stack(fit: StackFit.expand, children: [
-              _img(img, sz, fallback: title),
+              _img(img, sz, fallback: title, alt: m == null ? _posterAlt(sz, title) : null),
               _bottomShade(.35, 0xEB),
               Positioned(
                 left: 24 * f, right: 24 * f, bottom: 20 * f,
@@ -297,7 +322,7 @@ class OctoCard extends StatelessWidget {
           child: SizedBox(
             width: sz.width, height: sz.height,
             child: Stack(fit: StackFit.expand, children: [
-              _img(img, sz, fallback: title),
+              _img(img, sz, fallback: title, alt: m == null ? _posterAlt(sz, title) : null),
               _bottomShade(.5, 0xE0),
               Positioned(
                 left: 24 * f, right: 24 * f, bottom: 22 * f,
@@ -315,11 +340,12 @@ class OctoCard extends StatelessWidget {
       case CardStyle.posterBig:
       case CardStyle.posterSm:
         final img = d.image.isNotEmpty ? d.image : (poster.isNotEmpty ? hires(poster, 'w500') : (d.lib?.logo ?? ''));
+        final alt = m == null ? _posterAlt(sz, title) : null;
         return SizedBox(
           width: sz.width, height: sz.height,
           child: Stack(fit: StackFit.expand, children: [
-            _img(img, sz, fallback: title),
-            if (img.isEmpty)
+            _img(img, sz, fallback: title, alt: alt),
+            if (img.isEmpty && alt == null)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.all(10),

@@ -27,10 +27,13 @@ class XtreamClient {
   String get _qu => Uri.encodeComponent(user);
   String get _qp => Uri.encodeComponent(pwd);
 
-  Future<dynamic> api([String? action, Map<String, String> params = const {}]) {
+  Future<dynamic> api([String? action, Map<String, String> params = const {}, Duration timeout = const Duration(seconds: 90)]) {
     final q = {'username': user, 'password': pwd, if (action != null) 'action': action, ...params};
-    return getJson('$base/player_api.php?${Uri(queryParameters: q).query}');
+    return getJson('$base/player_api.php?${Uri(queryParameters: q).query}', timeout: timeout);
   }
+
+  /// Rubriques (live / movie / series) que le serveur n'a pas envoyées au dernier chargement, avec la raison.
+  final Map<String, String> failed = {};
 
   static List<dynamic> list(dynamic v) {
     if (v is Map) return v.values.toList();
@@ -56,6 +59,7 @@ class XtreamClient {
     if (ui['max_connections'] != null) meta.add('Connexions max : ${ui['max_connections']}');
 
     final items = <Item>[];
+    failed.clear();
     const plan = [
       ['live', 'get_live_categories', 'get_live_streams'],
       ['movie', 'get_vod_categories', 'get_vod_streams'],
@@ -69,10 +73,19 @@ class XtreamClient {
           if (c is Map) cats['${c['category_id']}'] = _s(c['category_name']);
         }
       } catch (_) {}
-      List<dynamic> streams;
-      try {
-        streams = list(await api(p[2]));
-      } catch (_) {
+      List<dynamic>? streams;
+      Object? err;
+      // gros catalogues : délai long et jusqu'à 3 essais (certains serveurs refusent les requêtes trop rapprochées)
+      for (var attempt = 0; attempt < 3 && streams == null; attempt++) {
+        if (attempt > 0) await Future<void>.delayed(Duration(seconds: 3 * attempt));
+        try {
+          streams = list(await api(p[2], const {}, const Duration(seconds: 240)));
+        } catch (e) {
+          err = e;
+        }
+      }
+      if (streams == null) {
+        failed[kind] = '$err';
         continue;
       }
       for (final s in streams) {
