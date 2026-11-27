@@ -14,7 +14,8 @@ import 'theme.dart';
 import 'widgets.dart';
 
 /// Largeur du menu latéral : 290 sur grand écran, plus étroit sur tablette.
-double _sidebarW(double w) => clampK(w * .23, 220, 290);
+// 4/3 : barre latérale plus étroite pour laisser la place au contenu
+double _sidebarW(double w, [double aspect = 16 / 9]) => aspect < 1.5 ? clampK(w * .2, 190, 250) : clampK(w * .23, 220, 290);
 
 class _NavDef {
   final String key;
@@ -147,7 +148,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
     final size = MediaQuery.sizeOf(context);
     final collapsed = !phone && _collapsed(s, size.width);
     final landscapePhone = phone && size.width > size.height;
-    final side = (!phone && !collapsed) ? _sidebarW(size.width) : (landscapePhone ? 76.0 : 0.0);
+    final side = (!phone && !collapsed) ? _sidebarW(size.width, aspectOf(context)) : (landscapePhone ? 76.0 : 0.0);
     final k = layoutK(context, size.width - side, size.height);
     final keys = _nav.map((e) => e.key).toList();
     final stack = IndexedStack(

@@ -10,6 +10,7 @@ import '../core/text.dart';
 import 'nav.dart';
 import 'octo.dart';
 import 'scope.dart';
+import 'layout.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -124,7 +125,7 @@ class _HeroBannerState extends State<HeroBanner> {
       final w = c.maxWidth;
       final screenH = MediaQuery.sizeOf(context).height;
       final phoneMax = screenH * .82 < 360 ? 360.0 : screenH * .82;
-      final h = (phone ? (w * 1.25).clamp(360.0, phoneMax) : (w * .43).clamp(380.0, (screenH * .8).clamp(380.0, 1100.0))).toDouble();
+      final h = (phone ? (w * 1.25).clamp(360.0, phoneMax) : (w * .43).clamp(300.0, (screenH * heroMaxFraction(context)).clamp(300.0, 1100.0))).toDouble();
       final band = phone ? 96.0 : (widget.collapsed ? 150.0 : 124.0);
       final k = u.k;
       final it = _cur;

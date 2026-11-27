@@ -8,6 +8,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'core/net.dart';
 import 'core/store.dart';
+import 'ui/layout.dart';
 import 'ui/profiles.dart';
 import 'ui/scope.dart';
 import 'ui/shell.dart';
@@ -82,7 +83,7 @@ class UiScale extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
     final v = '${s.pset['ui_scale'] ?? 'auto'}';
-    final f = v == 'auto' ? (s.sys.isTv ? 0.8 : 1.0) : (int.tryParse(v) ?? 100) / 100;
+    final f = v == 'auto' ? autoUiScale(context) : (int.tryParse(v) ?? 100) / 100;
     if ((f - 1).abs() < .01) return child;
     final mq = MediaQuery.of(context);
     final size = mq.size / f;

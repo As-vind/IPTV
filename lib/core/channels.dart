@@ -402,6 +402,16 @@ const List<Setting> kSettings = [
     ('tv', 'Télévision'),
     ('projector', 'Vidéoprojecteur'),
   ]),
+  Setting('Affichage', 'ui_inches', "Taille de l'écran (diagonale)", 'choice', 'auto', choices: [
+    ('auto', 'Automatique'),
+    ('24', "Jusqu'à 27\" (moniteur)"),
+    ('32', '30 – 32"'),
+    ('43', '40 – 50"'),
+    ('55', '55"'),
+    ('65', '65"'),
+    ('75', '75"'),
+    ('85', '85" et plus / vidéoprojecteur'),
+  ]),
   Setting('Affichage', 'ui_scale', "Taille de l'interface", 'choice', 'auto', choices: [
     ('auto', 'Automatique (réduite sur TV)'),
     ('70', '70 %'),
