@@ -389,6 +389,11 @@ class AppState extends ChangeNotifier {
       } else if (src['type'] == 'jellyfin') {
         final cl = JellyfinClient.of(src);
         (its, info) = await cl.loadAll();
+        // mise à jour : les jaquettes de la médiathèque sont rapatriées tout de suite (réseau local rapide)
+        final urls = [for (final i in its) if (i.logo.isNotEmpty) i.logo];
+        unawaited(DiskImage.prefetch(urls, parallel: 6, max: 3000).then((n) {
+          if (n > 0) log('Jellyfin : $n jaquettes mises en cache');
+        }));
         // jeton de connexion gardé : les liens de lecture enregistrés restent valides
         if (src['token'] != cl.token || src['uid'] != cl.uid) {
           src['token'] = cl.token;

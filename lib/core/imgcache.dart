@@ -58,6 +58,34 @@ class DiskImage extends ImageProvider<DiskImage> {
     }
   }
 
+  /// Télécharge à l'avance des pochettes dans le cache disque (en arrière-plan, quelques-unes à la fois),
+  /// pour que la navigation soit fluide dès l'ouverture d'une page.
+  static Future<int> prefetch(Iterable<String> urls, {int parallel = 4, int max = 1500}) async {
+    if (dir.isEmpty) return 0;
+    final todo = <String>[];
+    for (final u in urls) {
+      if (todo.length >= max) break;
+      if (u.startsWith('http') && !await File('$dir/${fnv(u)}.img').exists()) todo.add(u);
+    }
+    if (todo.isEmpty) return 0;
+    await Directory(dir).create(recursive: true);
+    var i = 0, done = 0;
+    Future<void> worker() async {
+      while (i < todo.length) {
+        final u = todo[i++];
+        try {
+          final b = await getBytes(u, headers: const {'User-Agent': 'Mozilla/5.0'}, timeout: const Duration(seconds: 20));
+          if (b.isNotEmpty && b.length <= _maxBytes) {
+            await File('$dir/${fnv(u)}.img').writeAsBytes(b, flush: false);
+            done++;
+          }
+        } catch (_) {}
+      }
+    }
+    await Future.wait([for (var k = 0; k < parallel; k++) worker()]);
+    return done;
+  }
+
   @override
   bool operator ==(Object other) => other is DiskImage && other.url == url;
   @override

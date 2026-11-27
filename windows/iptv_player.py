@@ -6493,6 +6493,8 @@ class PlayerPage(QtWidgets.QWidget):
         media = self.instance.media_new(url)
         media.add_option(f":http-user-agent={USER_AGENT}")
         cache = prof["live_cache"] if live else prof["vod_cache"]
+        if "/Videos/" in url and "static=true" in url and "api_key=" in url:
+            cache = max(cache, 5)  # Jellyfin (réseau local) : réserve plus large, remplie à pleine vitesse
         media.add_option(f":network-caching={int(max(300, min(60000, cache * 1000)))}")
         media.add_option(":http-reconnect")
         media.add_option(":avcodec-hw=" + ("any" if p.get("hwdec", True) else "none"))

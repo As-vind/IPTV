@@ -158,3 +158,17 @@ class JellyfinClient {
     return d == null ? '' : '${d.millisecondsSinceEpoch ~/ 1000}';
   }
 }
+
+/// Jellyfin : lien de lecture directe du fichier (`/Videos/<id>/stream?static=true&api_key=…`).
+bool jellyfinIsDirect(String u) => u.contains('/Videos/') && u.contains('static=true') && u.contains('api_key=');
+
+/// Repli Jellyfin quand l'appareil ne sait pas lire le fichier tel quel : le serveur le convertit à la volée (HLS H.264/AAC).
+String jellyfinTranscodeUrl(String u) {
+  final m = RegExp(r'/Videos/([^/]+)/stream\?').firstMatch(u);
+  final key = RegExp(r'api_key=([^&]+)').firstMatch(u)?.group(1) ?? '';
+  if (m == null) return u;
+  final id = m.group(1)!;
+  return '${u.substring(0, m.start)}/Videos/$id/master.m3u8?MediaSourceId=$id&api_key=$key'
+      '&VideoCodec=h264&AudioCodec=aac,mp3&VideoBitrate=20000000&AudioBitrate=320000'
+      '&TranscodingMaxAudioChannels=6&SegmentContainer=ts&BreakOnNonKeyFrames=true&DeviceId=asvind-tv';
+}

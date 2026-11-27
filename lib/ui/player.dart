@@ -8,6 +8,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../core/channels.dart';
+import '../core/jellyfin.dart';
 import '../core/models.dart';
 import '../core/net.dart';
 import '../core/store.dart';
@@ -107,6 +108,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _errT = Timer(const Duration(seconds: 4), () {
       if (!mounted) return;
       final stuck = _pos <= at + const Duration(milliseconds: 500);
+      final v = _variants[_vidx];
+      if (stuck && _jfAltFor != v.url && jellyfinIsDirect(v.url)) {
+        // format non lu par l'appareil : on redemande le fichier converti par Jellyfin, au même endroit
+        _s.log('Jellyfin : lecture directe impossible sur cet appareil ($e) — conversion par le serveur');
+        _jfAltFor = v.url;
+        _jfAlt = jellyfinTranscodeUrl(v.url);
+        _resumeAt = _pos;
+        unawaited(_openUrl());
+        return;
+      }
       if (stuck) {
         setState(() {
           _errAt = _pos;
@@ -196,9 +207,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return pickVariant(_variants, pref: pref, cap: _cap(), stats: _s.stats, exclude: _failed, below: below);
   }
 
+  // lien converti utilisé à la place du lien direct (pour ce lien-là seulement) et position de reprise
+  String? _jfAlt, _jfAltFor;
+  Duration? _resumeAt;
+
   Future<void> _openUrl() async {
     final it = _cur;
     final v = _variants[_vidx];
+    final useAlt = _jfAlt != null && _jfAltFor == v.url;
+    final playUrl = useAlt ? _jfAlt! : v.url;
     _url = v.url;
     _okNoted = false;
     _hadError = false;
@@ -207,14 +224,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _posPrev = Duration.zero;
     final local = _live ? null : _s.downloads.localFile(it.url);
     _localFile = local != null;
-    await _applyProps(local != null);
+    await _applyProps(local != null, jellyfin: local == null && (jellyfinIsDirect(v.url) || useAlt));
     final probe = PlayItem(name: it.name, url: v.url, kind: it.kind, opts: v.opts);
-    await _player.open(local != null ? Media(local) : Media(v.url, httpHeaders: _headers(probe)), play: true);
+    await _player.open(local != null ? Media(local) : Media(playUrl, httpHeaders: _headers(probe)), play: true);
     if (mounted) setState(() {});
   }
 
   /// Réglages mpv : mémoire tampon du profil, image, son, désentrelacement, HDR.
-  Future<void> _applyProps(bool local) async {
+  Future<void> _applyProps(bool local, {bool jellyfin = false}) async {
     final p = _player.platform as dynamic;
     Future<void> set(String k, String v) async {
       try {
@@ -242,6 +259,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await set('audio-spdif', st['passthrough'] == true ? 'ac3,eac3,dts,dts-hd,truehd' : '');
     if (st['max_res'] == 'sd') await set('hls-bitrate', 'min');
     await _applyLive();
+    // reprise au même endroit après un changement de lien (repli Jellyfin), sinon début normal
+    final ra = _resumeAt;
+    _resumeAt = null;
+    await set('start', ra != null && ra.inSeconds > 2 ? '${ra.inSeconds}' : 'none');
     if (local) {
       await set('cache', 'no');
       await set('cache-pause-initial', 'no');
@@ -252,6 +273,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await set('force-seekable', 'yes');
     await set('network-timeout', '${prof.stallTimeout + 5}');
     await set('stream-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=4');
+    if (jellyfin) {
+      // Jellyfin (réseau local) : grosse réserve sur disque remplie à pleine vitesse du réseau maison,
+      // démarrage après 3 s seulement — plus de saccades même sur les fichiers 4K à fort débit.
+      final low = _s.hwTier == 'low' || (_s.sys.totalMb > 0 && _s.sys.totalMb < 2500);
+      await set('cache-on-disk', 'yes');
+      await set('cache-dir', (await _cacheDir()).path);
+      await set('cache-secs', '900');
+      await set('demuxer-readahead-secs', '900');
+      await set('demuxer-max-bytes', low ? '512MiB' : '1024MiB');
+      await set('demuxer-max-back-bytes', low ? '64MiB' : '160MiB');
+      await set('stream-buffer-size', '4MiB');
+      await set('network-timeout', '30');
+      await set('cache-pause-initial', 'yes');
+      await set('cache-pause-wait', '3');
+      return;
+    }
     if (_live) {
       final secs = prof.liveCache;
       await set('cache-on-disk', 'no');

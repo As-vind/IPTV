@@ -80,6 +80,16 @@ void main() {
     expect(cl.login(), throwsA(isA<JellyfinError>()));
   });
 
+  test('Jellyfin : repli converti par le serveur', () {
+    const d = 'http://192.168.1.20:8096/Videos/abc123/stream?static=true&api_key=tok';
+    expect(jellyfinIsDirect(d), true);
+    expect(jellyfinIsDirect('http://x/live/u/p/1.ts'), false);
+    final t = jellyfinTranscodeUrl(d);
+    expect(t, startsWith('http://192.168.1.20:8096/Videos/abc123/master.m3u8?MediaSourceId=abc123&api_key=tok'));
+    expect(t, contains('VideoCodec=h264'));
+    expect(jellyfinIsDirect(t), false);
+  });
+
   test('rangées : un nombre entier de cases remplit la largeur', () {
     for (final w in [700.0, 920.0, 1100.0, 1400.0, 1800.0, 2400.0]) {
       for (final st in [CardStyle.posterSm, CardStyle.land, CardStyle.big]) {
