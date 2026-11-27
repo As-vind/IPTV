@@ -1,6 +1,7 @@
 // Cases et rangées façon OCTO+ (mêmes formats que la version Windows 2.6).
 import 'package:flutter/material.dart';
 
+import '../core/imgcache.dart';
 import '../core/meta.dart';
 import '../core/models.dart';
 import '../core/text.dart';
@@ -131,8 +132,8 @@ Widget titleOrLogo(String logo, String title, {required double maxW, required do
   if (logo.isEmpty) return text;
   return ConstrainedBox(
     constraints: BoxConstraints(maxWidth: maxW, maxHeight: maxH),
-    child: Image.network(logo, fit: BoxFit.contain, alignment: align, filterQuality: FilterQuality.medium,
-        cacheWidth: (maxW * 2).clamp(200, 900).toInt(),
+    child: Image(image: ResizeImage.resizeIfNeeded((maxW * 2).clamp(200, 900).toInt(), null, DiskImage(logo)),
+        fit: BoxFit.contain, alignment: align, filterQuality: FilterQuality.medium,
         errorBuilder: (_, __, ___) => text,
         loadingBuilder: (c, child, p) => p == null ? child : const SizedBox()),
   );

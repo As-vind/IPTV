@@ -14,6 +14,7 @@ import 'channels.dart';
 import 'countries.dart';
 import 'system.dart';
 import 'downloads.dart';
+import 'imgcache.dart';
 import 'm3u.dart';
 import 'meta.dart';
 import 'models.dart';
@@ -46,6 +47,52 @@ String _encodeCache(Map<String, dynamic> m) => jsonEncode(m);
   final list = (d is Map ? d['items'] : d) as List? ?? const [];
   final its = list.whereType<Map>().map((e) => Item.fromJson(Map<String, dynamic>.from(e))).toList();
   return (its, d is Map ? '${d['info'] ?? ''}' : '');
+}
+
+/// Lecture du cache + préparation dans le même isolat (rien n'est recopié entre les deux étapes).
+(List<Item>, String, Prepared) _loadPrepared((String, bool, Set<String>, bool) a) {
+  final (its, info) = _loadCache(a.$1);
+  return (its, info, prepareLibrary((its, a.$2, a.$3, a.$4)));
+}
+
+/// Liste prête à afficher : éléments filtrés / regroupés, titres nettoyés et index.
+class Prepared {
+  final List<Item> items;
+  final Map<String, List<Item>> byKind;
+  final Map<String, Item> byUrl;
+  final Map<String, Map<String, List<Item>>> titles;
+  Prepared(this.items, this.byKind, this.byUrl, this.titles);
+}
+
+/// Fonction de premier niveau (exécutable dans un isolat).
+Prepared prepareLibrary((List<Item>, bool, Set<String>, bool) a) {
+  final (raw, kids, hidden, dedupe) = a;
+  var its = raw;
+  if (kids) its = raw.where((i) => !adultRe.hasMatch('${i.group} ${i.name}')).toList();
+  if (hidden.isNotEmpty) its = its.where((i) => !hidden.contains(i.group)).toList();
+  if (dedupe) its = groupVariants(its);
+  final byKind = <String, List<Item>>{'live': [], 'movie': [], 'series': []};
+  final byUrl = <String, Item>{};
+  final titles = <String, Map<String, List<Item>>>{'movie': {}, 'series': {}};
+  for (final it in its) {
+    byUrl[it.url] = it;
+    if (it.kind == 'movie' || it.kind == 'series') {
+      final (t, y) = cleanTitle(it.name);
+      it.title = t;
+      it.year = y;
+      it.q = norm('${it.name} $t');
+      final rv = double.tryParse(it.rating);
+      it.ratingStr = (rv != null && rv > 0) ? (rv > 10 ? rv / 10 : rv).toStringAsFixed(1) : '';
+      it.sub = [it.year, prettyGroup(it.group)].where((e) => e.isNotEmpty).join(' · ');
+      titles[it.kind]!.putIfAbsent(titleKey(t), () => []).add(it);
+    } else {
+      it.title = it.grouped ? displayName(it.name) : stripLeadTags(it.name);
+      it.q = norm('${it.name} ${it.title}');
+      it.sub = prettyGroup(it.group);
+    }
+    byKind.putIfAbsent(it.kind, () => []).add(it);
+  }
+  return Prepared(its, byKind, byUrl, titles);
 }
 
 class CatTile {
@@ -122,6 +169,7 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     _dir = await getApplicationSupportDirectory();
+    DiskImage.dir = '${_dir.path}/images';
     for (final d in ['cache', 'meta']) {
       await Directory('${_dir.path}/$d').create(recursive: true);
     }
@@ -292,8 +340,11 @@ class AppState extends ChangeNotifier {
       loading = true;
       notifyListeners();
       try {
-        final (its, info) = await compute(_loadCache, f.path);
-        _applyLibrary(its, info);
+        final sw = Stopwatch()..start();
+        final (its, info, prep) =
+            await compute(_loadPrepared, (f.path, profile?['kids'] == true, _hiddenSet(), pset['dedupe'] != false));
+        _install(its, info, prep);
+        log('Liste « ${src['name']} » ouverte depuis le cache en ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s (${its.length} éléments)');
         loading = false;
         ready = true;
         notifyListeners();
@@ -360,7 +411,21 @@ class AppState extends ChangeNotifier {
       await File(_cachePath(sid)).writeAsString(enc);
       src['updated_ts'] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       save();
-      if (currentSource?['id'] == sid) _applyLibrary(its, info);
+      if (currentSource?['id'] == sid) {
+        // actualisation sans nouveauté : on ne reconstruit pas l'écran (pas de retour en haut de page)
+        var same = its.length == _raw.length;
+        for (var i = 0; same && i < its.length; i++) {
+          if (its[i].url != _raw[i].url || its[i].name != _raw[i].name) same = false;
+        }
+        if (same) {
+          sourceInfo = info;
+          log('Actualisation : aucune nouveauté');
+        } else {
+          final before = _raw.length;
+          await _applyLibraryAsync(its, info);
+          if (before > 0) log('Actualisation : ${its.length - before >= 0 ? '+' : ''}${its.length - before} éléments');
+        }
+      }
     } catch (e) {
       error = 'Impossible de charger « ${src['name']} » : $e';
     } finally {
@@ -394,39 +459,27 @@ class AppState extends ChangeNotifier {
   }
 
   // ------------------------------------------------------------ bibliothèque
-  void _applyLibrary(List<Item> raw, String info) {
+  void _applyLibrary(List<Item> raw, String info) =>
+      _install(raw, info, prepareLibrary((raw, profile?['kids'] == true, _hiddenSet(), pset['dedupe'] != false)));
+
+  Set<String> _hiddenSet() => ((cfg['hidden_groups'] as List?) ?? const []).map((e) => '$e').toSet();
+
+  /// Même chose, mais tout le travail lourd (titres, regroupements, index) se fait hors de l'écran principal :
+  /// avant, une grosse liste Xtream bloquait l'application pendant de longues secondes au démarrage.
+  Future<void> _applyLibraryAsync(List<Item> raw, String info) async {
+    final prep = await compute(prepareLibrary, (raw, profile?['kids'] == true, _hiddenSet(), pset['dedupe'] != false));
+    _install(raw, info, prep);
+  }
+
+  void _install(List<Item> raw, String info, Prepared prep) {
     _raw = raw;
     sourceInfo = info;
-    var its = raw;
-    if (profile?['kids'] == true) {
-      its = raw.where((i) => !adultRe.hasMatch('${i.group} ${i.name}')).toList();
-    }
-    final hidden = ((cfg['hidden_groups'] as List?) ?? const []).map((e) => '$e').toSet();
-    if (hidden.isNotEmpty) its = its.where((i) => !hidden.contains(i.group)).toList();
-    if (pset['dedupe'] != false) its = groupVariants(its);
-    items = its;
-    byKind = {'live': [], 'movie': [], 'series': []};
-    byUrl = {};
-    _titles['movie']!.clear();
-    _titles['series']!.clear();
-    for (final it in its) {
-      byUrl[it.url] = it;
-      if (it.kind == 'movie' || it.kind == 'series') {
-        final (t, y) = cleanTitle(it.name);
-        it.title = t;
-        it.year = y;
-        it.q = norm('${it.name} $t');
-        final rv = double.tryParse(it.rating);
-        it.ratingStr = (rv != null && rv > 0) ? (rv > 10 ? rv / 10 : rv).toStringAsFixed(1) : '';
-        it.sub = [it.year, prettyGroup(it.group)].where((e) => e.isNotEmpty).join(' · ');
-        _titles[it.kind]!.putIfAbsent(titleKey(t), () => []).add(it);
-      } else {
-        it.title = it.grouped ? displayName(it.name) : stripLeadTags(it.name);
-        it.q = norm('${it.name} ${it.title}');
-        it.sub = prettyGroup(it.group);
-      }
-      byKind.putIfAbsent(it.kind, () => []).add(it);
-    }
+    items = prep.items;
+    byKind = prep.byKind;
+    byUrl = prep.byUrl;
+    _titles
+      ..clear()
+      ..addAll(prep.titles);
     _remapSaved();
     libVersion++;
   }
@@ -981,7 +1034,7 @@ class AppState extends ChangeNotifier {
   Future<int> cleanNow() async {
     _lastClean = DateTime.now();
     final mb = (pset['cache_max_mb'] as num? ?? 500).toInt();
-    final (n1, b1) = await cleanCache([Directory('${_dir.path}/meta')], mb);
+    final (n1, b1) = await cleanCache([Directory('${_dir.path}/meta'), Directory('${_dir.path}/images')], mb);
     final (n2, b2) = await cleanCache([Directory('${_dir.path}/epg'), Directory('${_dir.path}/tampon')], 300, maxAgeDays: 7);
     log('Nettoyage du cache : ${n1 + n2} fichiers, ${((b1 + b2) / 1048576).toStringAsFixed(1)} Mo libérés');
     return b1 + b2;

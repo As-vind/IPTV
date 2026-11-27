@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/imgcache.dart';
+
 import '../core/models.dart';
 import '../core/net.dart';
 import '../core/store.dart';
@@ -34,11 +36,10 @@ class NetImg extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget img = url.isEmpty || !url.startsWith('http')
         ? (alt?.call() ?? _ph())
-        : Image.network(url,
+        : Image(
+            image: ResizeImage.resizeIfNeeded(cacheWidth ?? 500, null, DiskImage(url)),
             fit: fit,
             alignment: alignment,
-            cacheWidth: cacheWidth ?? 500,
-            headers: const {'User-Agent': 'Mozilla/5.0'},
             gaplessPlayback: true,
             errorBuilder: (_, __, ___) => alt?.call() ?? _ph(),
             loadingBuilder: (c, child, p) => p == null ? child : _ph());
