@@ -34,14 +34,23 @@ Size cardImageSize(CardStyle s, double k) {
   return Size(b.width * k, b.height * k);
 }
 
-/// Ajuste légèrement l'échelle (±20 % au plus) pour qu'un nombre entier de cases tienne pile dans la largeur.
+/// Ajuste légèrement l'échelle (±30 % au plus) pour qu'un nombre entier de cases tienne pile dans la largeur.
 double fitRowK(CardStyle s, double k, double avail, double gap, int count) {
   final cw = _base(s).width * k;
   if (!avail.isFinite || avail <= 0 || cw <= 0) return k;
-  final n = max(1, ((avail + gap) / (cw + gap)).round());
-  if (count < n) return k; // rangée courte : taille normale, alignée à gauche
-  final target = (avail - (n - 1) * gap) / n;
-  return k * (target / cw).clamp(.8, 1.2);
+  final x = (avail + gap) / (cw + gap);
+  var best = k, score = double.infinity, bestN = 1;
+  for (final n in {max(1, x.floor()), max(1, x.floor()) + 1}) {
+    final ratio = ((avail - (n - 1) * gap) / n) / cw;
+    final sc = (log(ratio)).abs();
+    if (ratio > 0 && sc < score) {
+      score = sc;
+      best = k * ratio;
+      bestN = n;
+    }
+  }
+  if (count < bestN) return k; // rangée courte : taille normale, alignée à gauche
+  return best.clamp(k * .7, k * 1.3);
 }
 
 /// Hauteur de la case avec le texte éventuel en dessous.

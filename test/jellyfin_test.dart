@@ -88,6 +88,7 @@ void main() {
         final cw = cardImageSize(st, k).width;
         final n = ((w + gap) / (cw + gap)).round();
         expect((n * cw + (n - 1) * gap - w).abs() < 1, true, reason: '$st à $w px');
+        expect(k / .8, inInclusiveRange(.7, 1.3));
       }
     }
   });
