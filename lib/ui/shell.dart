@@ -46,6 +46,8 @@ class _ShellState extends State<Shell> implements RootNavigator {
 
   @override
   void go(String key) {
+    final s0 = AppScope.read(context);
+    s0.setPage(_nav.where((e) => e.key == key).firstOrNull?.label ?? key);
     if (key == 'settings') {
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
       return;
@@ -354,9 +356,12 @@ class _ShellState extends State<Shell> implements RootNavigator {
             for (final x in srcs)
               DropdownMenuItem(value: '${x['id']}', child: Text('${x['type'] == 'xtream' ? '📡' : '📄'} ${x['name']}', overflow: TextOverflow.ellipsis)),
             const DropdownMenuItem(value: '__add__', child: Text('＋ Ajouter une source…')),
+            const DropdownMenuItem(value: '__manage__', child: Text('✎ Modifier / supprimer les sources…')),
           ],
           onChanged: (v) {
-            if (v == '__add__') {
+            if (v == '__manage__') {
+              showSourcesManager(context);
+            } else if (v == '__add__') {
               showSourceDialog(context);
             } else if (v != null) {
               s.setSource(v);

@@ -394,6 +394,13 @@ const List<Setting> kSettings = [
   Setting('Audio', 'av_delay', 'Synchronisation audio / vidéo (ms)', 'int', 0, lo: -2000, hi: 2000),
   Setting('Audio', 'normalize', 'Normalisation automatique du volume', 'bool', false),
   Setting('Audio', 'passthrough', "Son multicanal vers l'ampli (passthrough)", 'bool', false),
+  Setting('Affichage', 'ui_scale', "Taille de l'interface", 'choice', 'auto', choices: [
+    ('auto', 'Automatique (réduite sur TV)'),
+    ('70', '70 %'),
+    ('80', '80 %'),
+    ('90', '90 %'),
+    ('100', '100 %'),
+  ]),
   Setting('Maintenance', 'auto_refresh_h', 'Actualisation automatique des listes (heures, 0 = jamais)', 'int', 24, lo: 0, hi: 168),
   Setting('Maintenance', 'cache_max_mb', "Taille maximale du cache d'images (Mo)", 'int', 500, lo: 50, hi: 5000),
   Setting('Maintenance', 'auto_backup', 'Sauvegarde automatique quotidienne de la configuration', 'bool', true),

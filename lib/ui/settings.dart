@@ -15,11 +15,35 @@ import 'scope.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-Future<void> showSourceDialog(BuildContext context, {Map<String, dynamic>? replace, bool file = false}) async {
+Future<void> showSourceDialog(BuildContext context,
+    {Map<String, dynamic>? replace, bool file = false, Map<String, dynamic>? edit}) async {
   final src = await showDialog<Map<String, dynamic>>(
-      context: context, builder: (_) => _SourceDialog(replace: replace, file: file));
+      context: context, builder: (_) => _SourceDialog(replace: replace, file: file, edit: edit));
   if (src == null || !context.mounted) return;
   final s = AppScope.read(context);
+  if (edit != null) {
+    final id = '${edit['id']}';
+    if (src['__delete__'] == true) {
+      await s.deleteSource(id);
+      if (context.mounted) toast(context, 'Source « ${edit['name']} » supprimée.');
+      return;
+    }
+    final keep = {for (final k in ['epg', 'epg_auto', 'updated_ts']) if (edit.containsKey(k)) k: edit[k]};
+    final changedLink = ['type', 'url', 'server', 'user', 'password', 'live_ext'].any((k) => '${edit[k]}' != '${src[k]}');
+    edit
+      ..clear()
+      ..addAll(src)
+      ..addAll(keep)
+      ..['id'] = id;
+    s.save();
+    if (changedLink || s.currentSource?['id'] == id) {
+      unawaited(s.setSource(id, force: changedLink));
+    } else {
+      s.touch();
+    }
+    if (context.mounted) toast(context, 'Source « ${edit['name']} » modifiée.');
+    return;
+  }
   if (replace != null) {
     s.setSource('${replace['id']}', force: true);
     toast(context, 'Liste « ${replace['name']} » mise à jour.');
@@ -33,14 +57,36 @@ enum _Mode { url, file, xtream }
 
 class _SourceDialog extends StatefulWidget {
   final Map<String, dynamic>? replace;
+  final Map<String, dynamic>? edit;
   final bool file;
-  const _SourceDialog({this.replace, this.file = false});
+  const _SourceDialog({this.replace, this.file = false, this.edit});
   @override
   State<_SourceDialog> createState() => _SourceDialogState();
 }
 
 class _SourceDialogState extends State<_SourceDialog> {
   late _Mode _mode = widget.replace != null || widget.file ? _Mode.file : _Mode.url;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.edit;
+    if (e == null) return;
+    _name.text = '${e['name'] ?? ''}';
+    if (e['type'] == 'xtream') {
+      _mode = _Mode.xtream;
+      _server.text = '${e['server'] ?? ''}';
+      _user.text = '${e['user'] ?? ''}';
+      _pass.text = '${e['password'] ?? ''}';
+      _ext = '${e['live_ext'] ?? 'ts'}';
+    } else if (e['file'] != null) {
+      _mode = _Mode.file;
+      _fileName = '${e['file']}';
+    } else {
+      _mode = _Mode.url;
+      _url.text = '${e['url'] ?? ''}';
+    }
+  }
   final _name = TextEditingController();
   final _url = TextEditingController();
   final _server = TextEditingController();
@@ -109,10 +155,29 @@ class _SourceDialogState extends State<_SourceDialog> {
       final a = await _lan!.start();
       if (!mounted) return;
       // Panneau dédié (adresse + QR code) : rien n'est coupé en bas de l'écran, même sur une TV.
-      final got = await showDialog<(String, List<int>)>(context: context, builder: (_) => LanReceiveDialog(lan: _lan!, address: a));
+      final got = await showDialog<Object>(context: context, builder: (_) => LanReceiveDialog(lan: _lan!, address: a));
       await _lan?.stop();
       _lan = null;
-      if (got != null && mounted) await _gotFile(got.$1, got.$2);
+      if (!mounted) return;
+      if (got is (String, List<int>)) {
+        setState(() => _mode = _Mode.file);
+        await _gotFile(got.$1, got.$2);
+      } else if (got is Map<String, String>) {
+        // lien collé sur le téléphone : il arrive dans les champs, l'utilisateur vérifie puis valide
+        setState(() {
+          _err = null;
+          if (got['type'] == 'xtream') {
+            _mode = _Mode.xtream;
+            _server.text = got['server'] ?? '';
+            _user.text = got['user'] ?? '';
+            _pass.text = got['password'] ?? '';
+          } else {
+            _mode = _Mode.url;
+            _url.text = got['url'] ?? '';
+          }
+        });
+        toast(context, 'Lien reçu ✓ — vérifiez puis validez.');
+      }
     } catch (e) {
       await _lan?.stop();
       _lan = null;
@@ -122,9 +187,18 @@ class _SourceDialogState extends State<_SourceDialog> {
 
   Future<void> _ok() async {
     final s = AppScope.read(context);
-    final id = '${widget.replace?['id'] ?? AppState.newId()}';
+    final id = '${widget.edit?['id'] ?? widget.replace?['id'] ?? AppState.newId()}';
     switch (_mode) {
       case _Mode.file:
+        final e = widget.edit;
+        if (_bytes == null && e != null && e['file'] != null) {
+          // modification d'une source « fichier » sans nouveau fichier : on garde la liste actuelle
+          Navigator.pop(context, {
+            'id': id, 'type': 'm3u', 'name': _name.text.trim().isEmpty ? '${e['name']}' : _name.text.trim(),
+            'url': e['url'], 'file': e['file'],
+          });
+          return;
+        }
         if (_bytes == null) return setState(() => _err = 'Choisissez d\'abord un fichier M3U.');
         setState(() => _busy = true);
         try {
@@ -207,15 +281,28 @@ class _SourceDialogState extends State<_SourceDialog> {
         ),
       );
 
+  /// Copier-coller depuis le téléphone (QR code) : remplit les champs de ce formulaire.
+  Widget _phoneButton() => OutlinedButton.icon(
+        onPressed: _busy ? null : _startLan,
+        icon: const Icon(Icons.qr_code_2),
+        label: const Text('Coller depuis mon téléphone (QR code)'),
+      );
+
   List<Widget> _fileSection() => [
         _bigButton(Icons.folder_open_rounded, 'Choisir un fichier sur cet appareil',
             'Fichier .m3u / .m3u8 (téléchargements, carte SD, clé USB, iCloud…)', _pick),
         _bigButton(Icons.devices_rounded, 'Envoyer depuis un autre appareil',
-            'Téléphone ou PC sur le même Wi-Fi — idéal pour une TV', _startLan),
+            'Fichier, lien ou compte Xtream depuis un téléphone ou PC (même Wi-Fi) — idéal pour une TV', _startLan),
         if (_busy)
           const Padding(
             padding: EdgeInsets.only(bottom: 10),
             child: LinearProgressIndicator(minHeight: 3, color: kAccent, backgroundColor: Colors.white12),
+          ),
+        if (_bytes == null && widget.edit?['file'] != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text('Fichier actuel : ${widget.edit!['file']} (choisissez-en un autre pour le remplacer)',
+                style: const TextStyle(color: kMuted)),
           ),
         if (_bytes != null)
           Row(children: [
@@ -235,8 +322,11 @@ class _SourceDialogState extends State<_SourceDialog> {
   @override
   Widget build(BuildContext context) {
     final replacing = widget.replace != null;
+    final editing = widget.edit != null;
     return AlertDialog(
-      title: Text(replacing ? 'Remplacer le fichier de « ${widget.replace!['name']} »' : 'Ajouter une source'),
+      title: Text(replacing
+          ? 'Remplacer le fichier de « ${widget.replace!['name']} »'
+          : editing ? 'Modifier « ${widget.edit!['name']} »' : 'Ajouter une source'),
       content: SizedBox(
         width: 520,
         child: SingleChildScrollView(
@@ -256,6 +346,8 @@ class _SourceDialogState extends State<_SourceDialog> {
               const SizedBox(height: 8),
               const Text('Un lien « get.php?username=…&password=… » est converti automatiquement en compte Xtream '
                   '(TV + films + séries + fiches).', style: TextStyle(color: kMuted, fontSize: 12.5)),
+              const SizedBox(height: 8),
+              _phoneButton(),
             ] else if (_mode == _Mode.file)
               ..._fileSection()
             else ...[
@@ -265,6 +357,8 @@ class _SourceDialogState extends State<_SourceDialog> {
               const SizedBox(height: 10),
               TvTextField(controller: _pass, obscure: true, label: 'Mot de passe'),
               const SizedBox(height: 10),
+              _phoneButton(),
+              const SizedBox(height: 8),
               Row(children: [
                 const Text('Format des chaînes :  ', style: TextStyle(color: kMuted)),
                 ChoiceChip(label: const Text('ts'), selected: _ext == 'ts', onSelected: (_) => setState(() => _ext = 'ts')),
@@ -278,10 +372,28 @@ class _SourceDialogState extends State<_SourceDialog> {
         ),
       ),
       actions: [
+        if (editing)
+          TextButton(
+            onPressed: () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (c) => AlertDialog(
+                  title: Text('Supprimer « ${widget.edit!['name']} » ?'),
+                  content: const Text('La source et sa liste enregistrée seront effacées de cet appareil.'),
+                  actions: [
+                    TextButton(autofocus: true, onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+                    FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer')),
+                  ],
+                ),
+              );
+              if (ok == true && context.mounted) Navigator.pop(context, {'__delete__': true});
+            },
+            child: const Text('Supprimer', style: TextStyle(color: Color(0xFFFF8A8A))),
+          ),
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
         FilledButton(
           onPressed: _busy ? null : _ok,
-          child: Text(replacing ? 'Remplacer' : 'Ajouter'),
+          child: Text(replacing ? 'Remplacer' : editing ? 'Enregistrer' : 'Ajouter'),
         ),
       ],
     );
@@ -344,6 +456,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: const TextStyle(color: kMuted)),
               onTap: () => s.setSource('${src['id']}'),
               trailing: Wrap(children: [
+                IconButton(tooltip: 'Modifier', icon: const Icon(Icons.edit_outlined),
+                    onPressed: () => showSourceDialog(context, edit: src)),
                 if (src['file'] != null)
                   IconButton(tooltip: 'Remplacer le fichier', icon: const Icon(Icons.upload_file),
                       onPressed: () => showSourceDialog(context, replace: src)),
@@ -482,6 +596,7 @@ class LanReceiveDialog extends StatefulWidget {
 
 class _LanReceiveDialogState extends State<LanReceiveDialog> {
   StreamSubscription<(String, List<int>)>? _sub;
+  StreamSubscription<Map<String, String>>? _sub2;
 
   @override
   void initState() {
@@ -489,11 +604,15 @@ class _LanReceiveDialogState extends State<LanReceiveDialog> {
     _sub = widget.lan.files.listen((f) {
       if (mounted) Navigator.of(context).pop(f);
     });
+    _sub2 = widget.lan.links.listen((l) {
+      if (mounted) Navigator.of(context).pop(l);
+    });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _sub2?.cancel();
     super.dispose();
   }
 
@@ -505,7 +624,8 @@ class _LanReceiveDialogState extends State<LanReceiveDialog> {
       const SizedBox(height: 10),
       SelectableText(widget.address, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
       const SizedBox(height: 10),
-      const Text('puis choisissez le fichier .m3u / .m3u8.', style: TextStyle(color: kMuted)),
+      const Text('puis choisissez le fichier .m3u / .m3u8, ou collez un lien M3U ou un compte Xtream (copier-coller).',
+          style: TextStyle(color: kMuted)),
       const SizedBox(height: 14),
       const Row(children: [
         SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: kAccent)),
@@ -514,7 +634,7 @@ class _LanReceiveDialogState extends State<LanReceiveDialog> {
       ]),
     ]);
     return AlertDialog(
-      title: const Text('Envoyer une liste depuis un autre appareil'),
+      title: const Text('Envoyer depuis un autre appareil'),
       content: SizedBox(
         width: 640,
         child: LayoutBuilder(
@@ -528,6 +648,86 @@ class _LanReceiveDialogState extends State<LanReceiveDialog> {
         ),
       ),
       actions: [TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Annuler'))],
+    );
+  }
+}
+
+/// « Mes sources » : utiliser, modifier, actualiser ou supprimer une source (adapté à la télécommande).
+Future<void> showSourcesManager(BuildContext context) => showDialog<void>(context: context, builder: (_) => const _SourcesManager());
+
+class _SourcesManager extends StatelessWidget {
+  const _SourcesManager();
+  @override
+  Widget build(BuildContext context) {
+    final s = AppScope.of(context);
+    final cur = s.currentSource?['id'];
+    return AlertDialog(
+      title: const Text('Mes sources'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (s.sources.isEmpty) const Text('Aucune source pour le moment.', style: TextStyle(color: kMuted)),
+            for (final src in s.sources)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.white.withValues(alpha: .06), borderRadius: BorderRadius.circular(14)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${src['type'] == 'xtream' ? '📡' : '📄'}  ${src['name']}${src['id'] == cur ? '   · en cours' : ''}',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                  Text(
+                      src['type'] == 'xtream'
+                          ? 'Compte Xtream · ${src['server']} · ${src['user']}'
+                          : src['file'] != null ? 'Fichier M3U · ${src['file']}' : 'Lien M3U · ${src['url']}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMuted, fontSize: 12.5)),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    if (src['id'] != cur)
+                      OutlinedButton(
+                          onPressed: () {
+                            s.setSource('${src['id']}');
+                            Navigator.pop(context);
+                          },
+                          child: const Text('Utiliser')),
+                    OutlinedButton.icon(
+                        onPressed: () => showSourceDialog(context, edit: src),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: const Text('Modifier')),
+                    OutlinedButton.icon(
+                        onPressed: () {
+                          s.setSource('${src['id']}', force: true);
+                          toast(context, 'Actualisation de « ${src['name']} »…');
+                        },
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Actualiser')),
+                    OutlinedButton.icon(
+                        onPressed: () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (c) => AlertDialog(
+                              title: Text('Supprimer « ${src['name']} » ?'),
+                              actions: [
+                                TextButton(autofocus: true, onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+                                FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer')),
+                              ],
+                            ),
+                          );
+                          if (ok == true) await s.deleteSource('${src['id']}');
+                        },
+                        icon: const Icon(Icons.delete_outline, size: 18, color: Color(0xFFFF8A8A)),
+                        label: const Text('Supprimer')),
+                  ]),
+                ]),
+              ),
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => showSourceDialog(context), child: const Text('＋ Ajouter une source')),
+        FilledButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Fermer')),
+      ],
     );
   }
 }

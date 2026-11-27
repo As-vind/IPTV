@@ -132,6 +132,7 @@ Widget titleOrLogo(String logo, String title, {required double maxW, required do
   return ConstrainedBox(
     constraints: BoxConstraints(maxWidth: maxW, maxHeight: maxH),
     child: Image.network(logo, fit: BoxFit.contain, alignment: align, filterQuality: FilterQuality.medium,
+        cacheWidth: (maxW * 2).clamp(200, 900).toInt(),
         errorBuilder: (_, __, ___) => text,
         loadingBuilder: (c, child, p) => p == null ? child : const SizedBox()),
   );
@@ -207,11 +208,13 @@ class OctoCard extends StatelessWidget {
     );
   }
 
+  double get _dpr => 2.0;
+
   Widget _img(String url, Size sz, {BoxFit fit = BoxFit.cover, String fallback = ''}) => SizedBox(
         width: sz.width,
         height: sz.height,
         child: NetImg(url, fallbackText: fallback, fit: fit, radius: _radius,
-            cacheWidth: (sz.width * 2.5).clamp(120, 1400).toInt()),
+            cacheWidth: (sz.width * _dpr).clamp(120, 1000).toInt()),
       );
 
   Widget _body(BuildContext context, Size sz, Map<String, dynamic>? m) {

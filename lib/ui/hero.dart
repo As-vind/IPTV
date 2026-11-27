@@ -62,7 +62,7 @@ class _HeroBannerState extends State<HeroBanner> {
 
   String _backdrop(Item it, double w) {
     final b = '${_meta[it.url]?['backdrop'] ?? ''}';
-    return b.isEmpty ? '' : hires(b, w > 1400 ? 'original' : 'w1280');
+    return b.isEmpty ? '' : hires(b, 'w1280');
   }
 
   String _poster(Item it) {
@@ -88,7 +88,7 @@ class _HeroBannerState extends State<HeroBanner> {
     final bd = _backdrop(it, w);
     final poster = _poster(it);
     if (bd.isNotEmpty) {
-      return NetImg(bd, radius: 0, alignment: const Alignment(0, -.5), cacheWidth: (w * 2).clamp(600, 2600).toInt());
+      return NetImg(bd, radius: 0, alignment: const Alignment(0, -.5), cacheWidth: (w * 1.5).clamp(600, 1600).toInt());
     }
     final pair = phone ? null : _pairGeom(w, h, band);
     return Stack(fit: StackFit.expand, children: [

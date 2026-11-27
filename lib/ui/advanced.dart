@@ -21,6 +21,7 @@ const Map<String, String> _sectionTitles = {
   'Chaînes': 'Chaînes et qualité',
   'Vidéo': 'Vidéo',
   'Audio': 'Audio et sous-titres',
+  'Affichage': 'Affichage',
   'Maintenance': 'Entretien automatique',
 };
 

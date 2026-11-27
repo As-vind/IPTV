@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'admin.dart';
 import 'channels.dart';
 import 'countries.dart';
+import 'system.dart';
 import 'downloads.dart';
 import 'm3u.dart';
 import 'meta.dart';
@@ -93,6 +94,12 @@ class AppState extends ChangeNotifier {
   int cores = 0, ramMb = 0;
   String hwTier = 'mid';
   final List<String> appLog = [];
+  final SystemInfo sys = SystemInfo();
+  SessionGuard? _session;
+  String currentPage = 'Accueil';
+  /// Fermeture inattendue lors de la session précédente (affichée dans Paramètres → Journal).
+  String? lastCrash;
+  AppLifecycleListener? _life;
   final Map<String, Map<String, dynamic>> guides = {};
   final Map<String, Future<void>> _guideLoading = {};
   AdminServer? admin;
@@ -116,6 +123,31 @@ class AppState extends ChangeNotifier {
     for (final d in ['cache', 'meta']) {
       await Directory('${_dir.path}/$d').create(recursive: true);
     }
+    await sys.load();
+    try {
+      final j = File('${_dir.path}/journal.log');
+      if (await j.exists()) {
+        final lines = await j.readAsLines();
+        appLog.addAll(lines.skip(lines.length > 300 ? lines.length - 300 : 0));
+      }
+    } catch (_) {}
+    _session = SessionGuard(_dir);
+    final prevPage = await _session!.previousCrash();
+    if (prevPage != null) {
+      final exits = await sys.lastExits();
+      lastCrash = 'Fermeture inattendue (page « $prevPage ») : ${exits.isEmpty ? 'raison non fournie par l’appareil' : exits.first}';
+      log('⚠ $lastCrash');
+    }
+    log('Démarrage $kAppVersion — ${sys.isTv ? 'TV' : Platform.operatingSystem}, '
+        '${sys.totalMb > 0 ? '${sys.totalMb} Mo de mémoire (${sys.availMb} Mo libres)' : ''}${sys.lowRam ? ', appareil « faible mémoire »' : ''}');
+    _session!.mark(open: true, page: currentPage);
+    _life = AppLifecycleListener(
+      onHide: () => _session?.mark(open: false, page: currentPage),
+      onPause: () => _session?.mark(open: false, page: currentPage),
+      onShow: () => _session?.mark(open: true, page: currentPage),
+      onResume: () => _session?.mark(open: true, page: currentPage),
+      onDetach: () => _session?.mark(open: false, page: currentPage),
+    );
     try {
       final s = _prefs.getString('config');
       if (s != null) cfg = Map<String, dynamic>.from(jsonDecode(s) as Map);
@@ -371,13 +403,25 @@ class AppState extends ChangeNotifier {
     libVersion++;
   }
 
+  // Tri « derniers ajouts » calculé une seule fois par version de bibliothèque
+  // (avant : la liste entière était retriée à chaque reconstruction de la page → blocage sur TV).
+  final Map<String, (int, List<Item>)> _recentMemo = {};
+  final Map<String, (int, List<CatTile>)> _catMemo = {};
+
   List<Item> recent(String kind, int n) {
+    final memo = _recentMemo[kind];
+    if (memo != null && memo.$1 == libVersion && memo.$2.length >= n) return memo.$2.take(n).toList();
     final lst = byKind[kind] ?? [];
+    final want = max(n, 40);
+    List<Item> top;
     if (!lst.take(200).any((i) => i.added.isNotEmpty)) {
-      return lst.reversed.take(n).toList();
+      top = lst.reversed.take(want).toList();
+    } else {
+      final keyed = [for (final i in lst) (i.addedInt, i)]..sort((a, b) => b.$1.compareTo(a.$1));
+      top = [for (final e in keyed.take(want)) e.$2];
     }
-    final s = List<Item>.of(lst)..sort((a, b) => b.addedInt.compareTo(a.addedInt));
-    return s.take(n).toList();
+    _recentMemo[kind] = (libVersion, top);
+    return top.take(n).toList();
   }
 
   Item? matchTitle(String kind, String title, [String original = '', String year = '']) {
@@ -434,6 +478,15 @@ class AppState extends ChangeNotifier {
   }
 
   List<CatTile> categories(String kind, {int limit = 10000, bool special = false}) {
+    final mk = '$kind|$limit|$special';
+    final memo = _catMemo[mk];
+    if (memo != null && memo.$1 == libVersion) return memo.$2;
+    final r = _categories(kind, limit: limit, special: special);
+    _catMemo[mk] = (libVersion, r);
+    return r;
+  }
+
+  List<CatTile> _categories(String kind, {int limit = 10000, bool special = false}) {
     final pool = byKind[kind] ?? [];
     final counts = <String, int>{};
     final firstImg = <String, String>{};
@@ -557,9 +610,27 @@ class AppState extends ChangeNotifier {
   /// Fiche déjà en mémoire (affichage immédiat, sans attendre).
   Map<String, dynamic>? metaNow(Item item) => _metaMem[_metaKey(item)];
 
-  Future<Map<String, dynamic>> _computeMeta(Item item) => item.kind == 'series'
-      ? seriesMeta(currentSource, item, tmdbKey, lang)
-      : movieMeta(currentSource, item, tmdbKey, lang);
+  // Au plus 4 fiches demandées en même temps (avant : des dizaines de requêtes simultanées
+  // à l'ouverture de Films / Séries, ce qui saturait la mémoire et le réseau des TV).
+  int _metaRunning = 0;
+  final List<Completer<void>> _metaQueue = [];
+
+  Future<Map<String, dynamic>> _computeMeta(Item item) async {
+    if (_metaRunning >= 4) {
+      final c = Completer<void>();
+      _metaQueue.add(c);
+      await c.future;
+    }
+    _metaRunning++;
+    try {
+      return await (item.kind == 'series'
+          ? seriesMeta(currentSource, item, tmdbKey, lang)
+          : movieMeta(currentSource, item, tmdbKey, lang)).timeout(const Duration(seconds: 25));
+    } finally {
+      _metaRunning--;
+      if (_metaQueue.isNotEmpty) _metaQueue.removeAt(0).complete();
+    }
+  }
 
   void _indexCast(Item item, Map<String, dynamic> m) {
     for (final c in (m['cast'] as List? ?? []).whereType<Map>()) {
@@ -791,8 +862,23 @@ class AppState extends ChangeNotifier {
   void log(String m) {
     final n = DateTime.now();
     String two(int x) => x.toString().padLeft(2, '0');
-    appLog.add('${two(n.day)}/${two(n.month)} ${two(n.hour)}:${two(n.minute)}:${two(n.second)}  $m');
+    final line = '${two(n.day)}/${two(n.month)} ${two(n.hour)}:${two(n.minute)}:${two(n.second)}  $m';
+    appLog.add(line);
     if (appLog.length > 400) appLog.removeRange(0, appLog.length - 400);
+    try {
+      final j = File('${_dir.path}/journal.log');
+      if (j.existsSync() && j.lengthSync() > 300000) {
+        j.writeAsStringSync('${appLog.join('\n')}\n');
+      } else {
+        j.writeAsStringSync('$line\n', mode: FileMode.append);
+      }
+    } catch (_) {}
+  }
+
+  /// Page affichée (notée pour savoir où une éventuelle fermeture inattendue s'est produite).
+  void setPage(String p) {
+    currentPage = p;
+    _session?.mark(open: true, page: p);
   }
 
   void setHiddenGroups(List<String> hidden, List<String>? order) {

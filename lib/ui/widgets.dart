@@ -35,7 +35,7 @@ class NetImg extends StatelessWidget {
         : Image.network(url,
             fit: fit,
             alignment: alignment,
-            cacheWidth: cacheWidth,
+            cacheWidth: cacheWidth ?? 500,
             headers: const {'User-Agent': 'Mozilla/5.0'},
             gaplessPlayback: true,
             errorBuilder: (_, __, ___) => _ph(),

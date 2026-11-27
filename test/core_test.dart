@@ -36,6 +36,18 @@ http://x/series/u/p/3.mkv
 ''';
 
 void main() {
+  test('lien collé depuis le téléphone : Xtream ou M3U', () {
+    final x = LanImport.parseLink({'text': 'http://srv.tv:8080/get.php?username=bob&password=s3cr&type=m3u_plus'});
+    expect(x!['type'], 'xtream');
+    expect(x['server'], 'http://srv.tv:8080');
+    expect(x['user'], 'bob');
+    expect(x['password'], 's3cr');
+    final f = LanImport.parseLink({'server': 'srv.tv:80', 'user': 'a', 'password': 'b'});
+    expect(f!['type'], 'xtream');
+    final u = LanImport.parseLink({'text': 'https://exemple.fr/liste.m3u'});
+    expect(u, {'type': 'url', 'url': 'https://exemple.fr/liste.m3u'});
+  });
+
   test('M3U : pays, types, options et séries', () {
     final items = parseM3u(_sample);
     final byName = {for (final i in items) i.name: i};

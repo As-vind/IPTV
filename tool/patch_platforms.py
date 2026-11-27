@@ -25,6 +25,61 @@ dr = os.path.join(ROOT, "android/app/src/main/res/drawable")
 os.makedirs(dr, exist_ok=True)
 shutil.copy(os.path.join(ROOT, "assets/tv_banner.png"), os.path.join(dr, "tv_banner.png"))
 
+# ---------------- Android : petit module natif « iptv/system » (TV, mémoire, raison de la dernière fermeture)
+import glob as _glob
+for ma in _glob.glob(os.path.join(ROOT, "android/app/src/main/kotlin/**/MainActivity.kt"), recursive=True):
+    pkg = re.search(r"^package\s+([\w.]+)", open(ma, encoding="utf-8").read(), re.M).group(1)
+    open(ma, "w", encoding="utf-8").write(f"""package {pkg}
+
+import android.app.ActivityManager
+import android.app.UiModeManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {{
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "iptv/system").setMethodCallHandler {{ call, result ->
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            when (call.method) {{
+                "isTv" -> {{
+                    val ui = getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
+                    result.success(ui.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+                        packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK))
+                }}
+                "memory" -> {{
+                    val mi = ActivityManager.MemoryInfo()
+                    am.getMemoryInfo(mi)
+                    result.success(mapOf("total" to mi.totalMem, "avail" to mi.availMem, "low" to mi.lowMemory,
+                        "memoryClass" to am.memoryClass, "largeMemoryClass" to am.largeMemoryClass,
+                        "lowRam" to am.isLowRamDevice))
+                }}
+                "lastExits" -> {{
+                    if (Build.VERSION.SDK_INT >= 30) {{
+                        result.success(am.getHistoricalProcessExitReasons(packageName, 0, 5).map {{
+                            mapOf("reason" to it.reason, "description" to (it.description ?: ""), "time" to it.timestamp,
+                                "pss" to it.pss, "rss" to it.rss, "importance" to it.importance)
+                        }})
+                    }} else {{
+                        result.success(emptyList<Any>())
+                    }}
+                }}
+                else -> result.notImplemented()
+            }}
+        }}
+    }}
+}}
+""")
+s2 = open(man, encoding="utf-8").read()
+if "largeHeap" not in s2:
+    s2 = s2.replace("<application", '<application\n        android:largeHeap="true"', 1)
+    open(man, "w", encoding="utf-8").write(s2)
+
 # ---------------- Android : modules (ex. file_picker) compilés avec le même SDK récent que l'application
 fix = os.path.join(ROOT, "android/fix_sdk.gradle")
 open(fix, "w", encoding="utf-8").write("""subprojects { p ->
