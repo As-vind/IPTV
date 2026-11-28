@@ -484,8 +484,15 @@ class AppState extends ChangeNotifier {
   String _cachePath(String sid) => '${_dir.path}/cache/$sid.json';
 
   Future<void> setSource(String sid, {bool force = false}) async {
-    final src = sources.firstWhere((s) => s['id'] == sid, orElse: () => {});
-    if (src.isEmpty) return;
+    final i = sources.indexWhere((s) => s['id'] == sid);
+    if (i < 0) return;
+    // fiche toujours modifiable (une source tout juste ajoutée pouvait n'accepter que du texte)
+    var src = sources[i];
+    try {
+      src['updated_ts'] = src['updated_ts'];
+    } catch (_) {
+      src = sources[i] = Map<String, dynamic>.of(src);
+    }
     final changed = currentSource?['id'] != sid;
     currentSource = src;
     cfg['last_source'] = sid;
@@ -570,7 +577,7 @@ class AppState extends ChangeNotifier {
   }
 
   void addSource(Map<String, dynamic> src) {
-    sources.add(src);
+    sources.add(Map<String, dynamic>.of(src));
     save();
     setSource(src['id'] as String, force: true);
   }

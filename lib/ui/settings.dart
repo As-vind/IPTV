@@ -199,7 +199,7 @@ class _SourceDialogState extends State<_SourceDialog> {
         final e = widget.edit;
         if (_bytes == null && e != null && e['file'] != null) {
           // modification d'une source « fichier » sans nouveau fichier : on garde la liste actuelle
-          Navigator.pop(context, {
+          Navigator.pop(context, <String, dynamic>{
             'id': id, 'type': 'm3u', 'name': _name.text.trim().isEmpty ? '${e['name']}' : _name.text.trim(),
             'url': e['url'], 'file': e['file'],
           });
@@ -216,7 +216,7 @@ class _SourceDialogState extends State<_SourceDialog> {
             s.save();
             Navigator.pop(context, widget.replace);
           } else {
-            Navigator.pop(context, {
+            Navigator.pop(context, <String, dynamic>{
               'id': id, 'type': 'm3u', 'name': _name.text.trim().isEmpty ? (_fileName ?? 'Ma liste') : _name.text.trim(),
               'url': path, 'file': _fileName,
             });
@@ -232,13 +232,13 @@ class _SourceDialogState extends State<_SourceDialog> {
         final u = Uri.tryParse(url);
         final q = u?.queryParameters ?? {};
         if (u != null && u.path.toLowerCase().contains('get.php') && (q['username'] ?? '').isNotEmpty && (q['password'] ?? '').isNotEmpty) {
-          Navigator.pop(context, {
+          Navigator.pop(context, <String, dynamic>{
             'id': id, 'type': 'xtream', 'name': _name.text.trim().isEmpty ? u.host : _name.text.trim(),
             'server': '${u.scheme}://${u.authority}', 'user': q['username'], 'password': q['password'], 'live_ext': 'ts',
           });
           return;
         }
-        Navigator.pop(context, {
+        Navigator.pop(context, <String, dynamic>{
           'id': id, 'type': 'm3u', 'name': _name.text.trim().isEmpty ? (u?.host ?? 'Liste M3U') : _name.text.trim(), 'url': url,
         });
       case _Mode.jellyfin:
@@ -256,7 +256,7 @@ class _SourceDialogState extends State<_SourceDialog> {
           final cl = JellyfinClient.of(probe);
           await cl.login();
           if (!mounted) return;
-          Navigator.pop(context, {
+          Navigator.pop(context, <String, dynamic>{
             'id': id, 'type': 'jellyfin',
             'name': _name.text.trim().isEmpty ? 'Jellyfin' : _name.text.trim(),
             'server': cl.base, 'user': _user.text.trim(), 'password': _pass.text,
@@ -272,7 +272,7 @@ class _SourceDialogState extends State<_SourceDialog> {
           return setState(() => _err = 'Serveur, identifiant et mot de passe requis.');
         }
         final srv = _server.text.trim();
-        Navigator.pop(context, {
+        Navigator.pop(context, <String, dynamic>{
           'id': id, 'type': 'xtream',
           'name': _name.text.trim().isEmpty ? (Uri.tryParse(srv.contains('://') ? srv : 'http://$srv')?.host ?? srv) : _name.text.trim(),
           'server': srv, 'user': _user.text.trim(), 'password': _pass.text.trim(), 'live_ext': _ext,
@@ -431,7 +431,7 @@ class _SourceDialogState extends State<_SourceDialog> {
                   ],
                 ),
               );
-              if (ok == true && context.mounted) Navigator.pop(context, {'__delete__': true});
+              if (ok == true && context.mounted) Navigator.pop(context, <String, dynamic>{'__delete__': true});
             },
             child: const Text('Supprimer', style: TextStyle(color: Color(0xFFFF8A8A))),
           ),
