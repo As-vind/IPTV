@@ -282,7 +282,7 @@ class _SourceDialogState extends State<_SourceDialog> {
 
   Widget _modeChip(_Mode m, IconData ic, String t, {bool autofocus = false}) => ChoiceChip(
         autofocus: autofocus,
-        avatar: Icon(ic, size: 18, color: Colors.white),
+        avatar: Icon(ic, size: 18, color: _mode == m ? Colors.white : kInk),
         label: Text(t),
         selected: _mode == m,
         showCheckmark: false,
@@ -303,9 +303,9 @@ class _SourceDialogState extends State<_SourceDialog> {
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5, color: Colors.white)),
+                    Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5, color: kInk)),
                     const SizedBox(height: 2),
-                    Text(sub, style: const TextStyle(color: kMuted, fontSize: 12.5)),
+                    Text(sub, style: TextStyle(color: kMuted, fontSize: 12.5)),
                   ]),
                 ),
               ]),
@@ -326,15 +326,15 @@ class _SourceDialogState extends State<_SourceDialog> {
         _bigButton(Icons.devices_rounded, 'Envoyer depuis un autre appareil',
             'Fichier, lien ou compte Xtream depuis un téléphone ou PC (même Wi-Fi) — idéal pour une TV', _startLan),
         if (_busy)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(bottom: 10),
-            child: LinearProgressIndicator(minHeight: 3, color: kAccent, backgroundColor: Colors.white12),
+            child: LinearProgressIndicator(minHeight: 3, color: kAccent, backgroundColor: kBorder2),
           ),
         if (_bytes == null && widget.edit?['file'] != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Text('Fichier actuel : ${widget.edit!['file']} (choisissez-en un autre pour le remplacer)',
-                style: const TextStyle(color: kMuted)),
+                style: TextStyle(color: kMuted)),
           ),
         if (_bytes != null)
           Row(children: [
@@ -346,7 +346,7 @@ class _SourceDialogState extends State<_SourceDialog> {
             ),
           ]),
         const SizedBox(height: 6),
-        const Text("La liste est copiée dans l'application : elle reste disponible même si le fichier d'origine est "
+        Text("La liste est copiée dans l'application : elle reste disponible même si le fichier d'origine est "
             'supprimé. Pour la mettre à jour : Paramètres → Sources → « Remplacer le fichier ».',
             style: TextStyle(color: kMuted, fontSize: 12.5)),
       ];
@@ -377,7 +377,7 @@ class _SourceDialogState extends State<_SourceDialog> {
             if (_mode == _Mode.url) ...[
               TvTextField(controller: _url, keyboardType: TextInputType.url, label: 'Lien M3U', hint: 'https://…/playlist.m3u'),
               const SizedBox(height: 8),
-              const Text('Un lien « get.php?username=…&password=… » est converti automatiquement en compte Xtream '
+              Text('Un lien « get.php?username=…&password=… » est converti automatiquement en compte Xtream '
                   '(TV + films + séries + fiches).', style: TextStyle(color: kMuted, fontSize: 12.5)),
               const SizedBox(height: 8),
               _phoneButton(),
@@ -391,9 +391,9 @@ class _SourceDialogState extends State<_SourceDialog> {
               const SizedBox(height: 10),
               TvTextField(controller: _pass, obscure: true, label: 'Mot de passe (vide si aucun)'),
               const SizedBox(height: 8),
-              if (_busy) const LinearProgressIndicator(minHeight: 3, color: kAccent, backgroundColor: Colors.white12),
+              if (_busy) LinearProgressIndicator(minHeight: 3, color: kAccent, backgroundColor: kBorder2),
               const SizedBox(height: 6),
-              const Text('Vos films et séries personnels (disque, NAS…) servis par Jellyfin sur votre réseau. '
+              Text('Vos films et séries personnels (disque, NAS…) servis par Jellyfin sur votre réseau. '
                   'Lecture directe du fichier d\'origine, sans conversion.', style: TextStyle(color: kMuted, fontSize: 12.5)),
             ] else ...[
               TvTextField(controller: _server, keyboardType: TextInputType.url, label: 'Serveur', hint: 'http://serveur.exemple.com:8080'),
@@ -405,7 +405,7 @@ class _SourceDialogState extends State<_SourceDialog> {
               _phoneButton(),
               const SizedBox(height: 8),
               Row(children: [
-                const Text('Format des chaînes :  ', style: TextStyle(color: kMuted)),
+                Text('Format des chaînes :  ', style: TextStyle(color: kMuted)),
                 ChoiceChip(label: const Text('ts'), selected: _ext == 'ts', onSelected: (_) => setState(() => _ext = 'ts')),
                 const SizedBox(width: 8),
                 ChoiceChip(label: const Text('m3u8'), selected: _ext == 'm3u8', onSelected: (_) => setState(() => _ext = 'm3u8')),
@@ -498,7 +498,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: s.currentSource?['id'] == src['id'] ? kAccent : kMuted),
               title: Text('${src['name']}'),
               subtitle: Text(src['type'] == 'xtream' ? 'Compte Xtream Codes' : src['type'] == 'jellyfin' ? 'Jellyfin · ${src['server']}' : (src['file'] != null ? 'Fichier M3U · ${src['file']}' : 'Lien M3U'),
-                  style: const TextStyle(color: kMuted)),
+                  style: TextStyle(color: kMuted)),
               onTap: () => s.setSource('${src['id']}'),
               trailing: Wrap(children: [
                 IconButton(tooltip: 'Modifier', icon: const Icon(Icons.edit_outlined),
@@ -531,7 +531,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         if (s.sourceInfo.isNotEmpty)
-          Padding(padding: const EdgeInsets.only(top: 6), child: Text(s.sourceInfo, style: const TextStyle(color: kMuted, fontSize: 12.5))),
+          Padding(padding: const EdgeInsets.only(top: 6), child: Text(s.sourceInfo, style: TextStyle(color: kMuted, fontSize: 12.5))),
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
@@ -543,7 +543,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'les fonds, bandes-annonces, âges requis et vignettes des épisodes. Créez un compte sur themoviedb.org → '
             'Paramètres → API, puis collez la clé API (v3) ou le jeton de lecture (v4).'
             '${kTmdbBuiltin.length > 0 ? "  Une clé est déjà intégrée à l'application : ce champ ne sert que si vous voulez utiliser la vôtre." : ''}',
-            style: const TextStyle(color: kMuted, height: 1.4)),
+            style: TextStyle(color: kMuted, height: 1.4)),
         const SizedBox(height: 10),
         TvTextField(controller: _key, obscure: true, label: 'Clé API TMDB'),
         const SizedBox(height: 10),
@@ -556,7 +556,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ]),
         const SizedBox(height: 14),
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          const Text('Langue des fiches :  ', style: TextStyle(color: kMuted)),
+          Text('Langue des fiches :  ', style: TextStyle(color: kMuted)),
           for (final (code, name) in _langs)
             ChoiceChip(
               label: Text(name),
@@ -573,7 +573,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextStyle(color: kMuted, height: 1.4)),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          const Text('Films et séries :  ', style: TextStyle(color: kMuted)),
+          Text('Films et séries :  ', style: TextStyle(color: kMuted)),
           for (final (v, t) in const [(0, 'Désactivé'), (1, "1 min d'avance"), (5, "5 min d'avance"), (10, "10 min d'avance")])
             ChoiceChip(
               label: Text(t), selected: s.bufferMin == v, showCheckmark: false,
@@ -581,7 +581,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
         ]),
         const SizedBox(height: 8),
-        const Text("Les films téléchargés sont enregistrés dans l'espace de l'application (visible dans l'app Fichiers sur iPad / iPhone).",
+        Text("Les films téléchargés sont enregistrés dans l'espace de l'application (visible dans l'app Fichiers sur iPad / iPhone).",
             style: TextStyle(color: kMuted, fontSize: 12.5)),
         const AdvancedSettings(),
         _h('Administration depuis un navigateur'),
@@ -617,10 +617,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Row(children: [
           const Logo(height: 44),
           const SizedBox(width: 16),
-          Expanded(child: Text('$kAppTitle $kAppVersion — conçu par $kAppAuthor', style: const TextStyle(color: kMuted))),
+          Expanded(child: Text('$kAppTitle $kAppVersion — conçu par $kAppAuthor', style: TextStyle(color: kMuted))),
         ]),
         const SizedBox(height: 10),
-        const Text("Ce produit utilise l'API de TMDB mais n'est ni approuvé ni certifié par TMDB. "
+        Text("Ce produit utilise l'API de TMDB mais n'est ni approuvé ni certifié par TMDB. "
             "IPTV Player ne fournit aucun contenu : vous ajoutez votre propre abonnement.",
             style: TextStyle(color: kMuted, fontSize: 12.5)),
         const SizedBox(height: 10),
@@ -664,12 +664,12 @@ class _LanReceiveDialogState extends State<LanReceiveDialog> {
   @override
   Widget build(BuildContext context) {
     final info = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Sur votre téléphone ou PC (même Wi-Fi), scannez le QR code ou ouvrez dans le navigateur :',
+      Text('Sur votre téléphone ou PC (même Wi-Fi), scannez le QR code ou ouvrez dans le navigateur :',
           style: TextStyle(color: kMuted, height: 1.35)),
       const SizedBox(height: 10),
-      SelectableText(widget.address, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
+      SelectableText(widget.address, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: kInk)),
       const SizedBox(height: 10),
-      const Text('puis choisissez le fichier .m3u / .m3u8, ou collez un lien M3U ou un compte Xtream (copier-coller).',
+      Text('puis choisissez le fichier .m3u / .m3u8, ou collez un lien M3U ou un compte Xtream (copier-coller).',
           style: TextStyle(color: kMuted)),
       const SizedBox(height: 14),
       const Row(children: [
@@ -712,13 +712,13 @@ class _SourcesManager extends StatelessWidget {
         width: 620,
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            if (s.sources.isEmpty) const Text('Aucune source pour le moment.', style: TextStyle(color: kMuted)),
+            if (s.sources.isEmpty) Text('Aucune source pour le moment.', style: TextStyle(color: kMuted)),
             for (final src in s.sources)
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: .06), borderRadius: BorderRadius.circular(14)),
+                decoration: BoxDecoration(color: kInk.withValues(alpha: .06), borderRadius: BorderRadius.circular(14)),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${src['type'] == 'xtream' ? '📡' : src['type'] == 'jellyfin' ? '🏠' : '📄'}  ${src['name']}${src['id'] == cur ? '   · en cours' : ''}',
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
@@ -726,7 +726,7 @@ class _SourcesManager extends StatelessWidget {
                       src['type'] == 'xtream'
                           ? 'Compte Xtream · ${src['server']} · ${src['user']}'
                           : src['file'] != null ? 'Fichier M3U · ${src['file']}' : 'Lien M3U · ${src['url']}',
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMuted, fontSize: 12.5)),
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: kMuted, fontSize: 12.5)),
                   const SizedBox(height: 8),
                   Wrap(spacing: 8, runSpacing: 8, children: [
                     if (src['id'] != cur)

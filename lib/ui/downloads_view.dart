@@ -29,7 +29,7 @@ class DownloadsView extends StatelessWidget {
               '${done.length} vidéo(s) disponible(s) hors ligne · ${fmtSize(total)}\n'
               "Un téléchargement à la fois. Si votre abonnement n'autorise qu'une connexion, évitez de regarder "
               'un autre flux pendant un téléchargement.',
-              style: const TextStyle(color: kMuted, fontSize: 13),
+              style: TextStyle(color: kMuted, fontSize: 13),
             ),
           ),
           const SizedBox(height: 12),
@@ -75,22 +75,22 @@ class DownloadsView extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: isPhone(context) ? 10 : 26, vertical: 4),
       child: Container(
         padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(color: const Color(0xFF10141B), borderRadius: BorderRadius.circular(14)),
+        decoration: BoxDecoration(color: kPanel, borderRadius: BorderRadius.circular(14)),
         child: Row(children: [
           SizedBox(width: 64, height: 96, child: NetImg('${j['logo'] ?? ''}', fallbackText: '${j['name']}', radius: 8, cacheWidth: 200)),
           const SizedBox(width: 14),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('${j['name']}', maxLines: 2, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: kInk)),
               const SizedBox(height: 4),
-              Text(txt, style: const TextStyle(color: kMuted, fontSize: 12.5)),
+              Text(txt, style: TextStyle(color: kMuted, fontSize: 12.5)),
               if (st != 'done') ...[
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(2),
                   child: LinearProgressIndicator(
-                      value: size > 0 ? doneB / size : null, minHeight: 4, color: kAccent, backgroundColor: Colors.white12),
+                      value: size > 0 ? doneB / size : null, minHeight: 4, color: kAccent, backgroundColor: kBorder2),
                 ),
               ],
             ]),

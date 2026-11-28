@@ -117,7 +117,7 @@ class _SearchViewState extends State<SearchView> {
             ),
         ]),
         if (live.isEmpty && movies.isEmpty && series.isEmpty && _people.isEmpty)
-          const Padding(
+          Padding(
             padding: EdgeInsets.all(40),
             child: Center(child: Text('Aucun résultat dans votre liste.', style: TextStyle(color: kMuted))),
           ),

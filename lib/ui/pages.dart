@@ -244,7 +244,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
         body: cards == null
             ? const Center(child: CircularProgressIndicator(color: kAccent))
             : cards.isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
                       padding: EdgeInsets.all(30),
                       child: Text("Aucun titre de cette sélection n'est disponible dans votre liste pour le moment.",
@@ -559,10 +559,10 @@ class _Loading extends StatelessWidget {
               const SizedBox(width: 34, height: 34, child: CircularProgressIndicator(color: kAccent, strokeWidth: 3)),
               const SizedBox(height: 16),
               Text('Chargement de « ${s.currentSource?['name'] ?? 'votre liste'} »…',
-                  textAlign: TextAlign.center, style: const TextStyle(color: kMuted, fontSize: 15)),
+                  textAlign: TextAlign.center, style: TextStyle(color: kMuted, fontSize: 15)),
             ])
           : Text(s.error ?? 'Aucun contenu pour le moment.',
-              textAlign: TextAlign.center, style: const TextStyle(color: kMuted)),
+              textAlign: TextAlign.center, style: TextStyle(color: kMuted)),
     );
   }
 }
@@ -579,7 +579,7 @@ class _Welcome extends StatelessWidget {
           const SizedBox(height: 26),
           const Text('Bienvenue 👋', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          const Text('Ajoutez votre liste M3U (lien ou fichier) ou votre compte Xtream Codes pour commencer.\n'
+          Text('Ajoutez votre liste M3U (lien ou fichier) ou votre compte Xtream Codes pour commencer.\n'
               "Aucun contenu n'est fourni avec l'application.",
               textAlign: TextAlign.center, style: TextStyle(color: kMuted, fontSize: 15)),
           const SizedBox(height: 22),
@@ -607,10 +607,10 @@ class _Welcome extends StatelessWidget {
 Widget emptyLibrary(AppState s, String msg) {
   final src = s.currentSource;
   return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text(msg, style: const TextStyle(color: kMuted)),
+    Text(msg, style: TextStyle(color: kMuted)),
     if (!s.loading && src != null) ...[
       const SizedBox(height: 8),
-      const Text("Le serveur ne l'a peut-être pas envoyée au dernier chargement.", style: TextStyle(color: kMuted, fontSize: 13)),
+      Text("Le serveur ne l'a peut-être pas envoyée au dernier chargement.", style: TextStyle(color: kMuted, fontSize: 13)),
       const SizedBox(height: 14),
       FilledButton.icon(
         autofocus: true,

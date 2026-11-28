@@ -40,8 +40,6 @@ const List<int> kAvatarColors = [0xFFE8252C, 0xFF1A5FD8, 0xFFF6A600, 0xFF0E9A48,
 const List<String> kAvatarEmojis = ['', '🦤', '🦁', '🐯', '🦊', '🐼', '🐸', '🐙', '🦄', '🐬', '🚀', '⚽', '🎮', '🎬', '🎧', '⭐'];
 
 // ---------------------------------------------------------------- isolats
-String _encodeCache(Map<String, dynamic> m) => jsonEncode(m);
-
 /// Lecture du cache d'une source entièrement hors de l'écran principal (lecture + décodage en une fois).
 (List<Item>, String) _loadCache(String path) {
   final d = jsonDecode(File(path).readAsStringSync());
@@ -62,7 +60,88 @@ class Prepared {
   final Map<String, List<Item>> byKind;
   final Map<String, Item> byUrl;
   final Map<String, Map<String, List<Item>>> titles;
-  Prepared(this.items, this.byKind, this.byUrl, this.titles);
+  final String fp; // empreinte de la liste brute (savoir si une actualisation n'apporte rien de neuf)
+  Prepared(this.items, this.byKind, this.byUrl, this.titles, this.fp);
+}
+
+/// Empreinte rapide (liens + noms) : deux listes identiques donnent la même.
+String libFingerprint(List<Item> its) {
+  var h = 0x811c9dc5;
+  for (final it in its) {
+    for (final c in it.url.codeUnits) {
+      h = ((h ^ c) * 0x01000193) & 0xFFFFFFFF;
+    }
+    for (final c in it.name.codeUnits) {
+      h = ((h ^ c) * 0x01000193) & 0xFFFFFFFF;
+    }
+    h = ((h ^ 0x7c) * 0x01000193) & 0xFFFFFFFF;
+  }
+  return '${its.length}:${h.toRadixString(16)}';
+}
+
+/// Résultat d'une actualisation complète faite hors de l'écran principal.
+class RefreshOut {
+  final Prepared? prep; // null = rien de neuf
+  final List<Item> raw;
+  final String info, head, fp;
+  final Map<String, String> failed;
+  final Map<String, dynamic> patch; // valeurs à reporter dans la source (jeton Jellyfin…)
+  final int count;
+  RefreshOut(this.prep, this.raw, this.info, this.head, this.fp, this.failed, this.patch, this.count);
+}
+
+/// Télécharge, analyse, enregistre et prépare une source — tout dans un isolat : l'écran reste fluide.
+Future<RefreshOut> refreshWorker(Map<String, dynamic> a) async {
+  inWorker = true;
+  final src = Map<String, dynamic>.from(a['src'] as Map);
+  final cachePath = '${a['cache']}';
+  List<Item> its;
+  var info = '';
+  var head = '';
+  var failed = <String, String>{};
+  final patch = <String, dynamic>{};
+  final type = '${src['type']}';
+  if (type == 'xtream') {
+    final cl = XtreamClient.of(src);
+    (its, info) = await cl.loadAll();
+    failed = Map<String, String>.from(cl.failed);
+    if (failed.isNotEmpty) {
+      // rubrique non reçue : on garde celle de la dernière liste enregistrée au lieu de la vider
+      try {
+        if (File(cachePath).existsSync()) {
+          final (old, _) = _loadCache(cachePath);
+          its = [...its, ...old.where((i) => failed.containsKey(i.kind))];
+        }
+      } catch (_) {}
+    }
+  } else if (type == 'jellyfin') {
+    final cl = JellyfinClient.of(src);
+    (its, info) = await cl.loadAll();
+    patch['token'] = cl.token;
+    patch['uid'] = cl.uid;
+    patch['device'] = cl.deviceId;
+  } else {
+    final loc = '${src['url']}'.trim();
+    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(loc)) {
+      final text = await getText(loc, timeout: const Duration(seconds: 120));
+      if (!RegExp('#EXTINF', caseSensitive: false).hasMatch(text)) {
+        throw Exception("Le contenu reçu n'est pas une liste M3U valide.");
+      }
+      its = parseM3u(text);
+      head = text.length > 4000 ? text.substring(0, 4000) : text;
+    } else {
+      final f = File(loc.replaceFirst('file://', ''));
+      if (!f.existsSync()) throw Exception('Fichier introuvable : ${f.path}');
+      (its, head) = _parseM3uFile(f.path);
+    }
+  }
+  final now = DateTime.now();
+  info = [info, 'Mise à jour : ${fmtDate(now.toIso8601String())} ${fmtHm(now)}'].where((e) => e.isNotEmpty).join('\n');
+  File(cachePath).writeAsStringSync(jsonEncode({'info': info, 'items': [for (final e in its) e.toJson()]}));
+  final fp = libFingerprint(its);
+  final same = fp == '${a['oldFp']}';
+  final prep = same ? null : prepareLibrary((its, a['kids'] == true, Set<String>.from(a['hidden'] as List), a['dedupe'] != false));
+  return RefreshOut(prep, same ? const [] : its, info, head, fp, failed, patch, its.length);
 }
 
 /// Fonction de premier niveau (exécutable dans un isolat).
@@ -93,7 +172,7 @@ Prepared prepareLibrary((List<Item>, bool, Set<String>, bool) a) {
     }
     byKind.putIfAbsent(it.kind, () => []).add(it);
   }
-  return Prepared(its, byKind, byUrl, titles);
+  return Prepared(its, byKind, byUrl, titles, libFingerprint(raw));
 }
 
 class CatTile {
@@ -125,6 +204,7 @@ class AppState extends ChangeNotifier {
 
   // bibliothèque
   List<Item> _raw = [];
+  String _fp = ''; // empreinte de la liste affichée
   List<Item> items = [];
   Map<String, List<Item>> byKind = {'live': [], 'movie': [], 'series': []};
   Map<String, Item> byUrl = {};
@@ -292,8 +372,11 @@ class AppState extends ChangeNotifier {
     cfg['current_profile'] = p['id'];
     favorites = ((pdata['favorites'] as List?) ?? []).map((e) => '$e').toSet();
     save();
-    if (kidsChanged || notify) _applyLibrary(_raw, sourceInfo);
-    if (notify) notifyListeners();
+    if (kidsChanged) {
+      unawaited(_rebuild(hideFirst: true));
+    } else if (notify) {
+      notifyListeners();
+    }
   }
 
   void logoutProfile() {
@@ -363,82 +446,45 @@ class AppState extends ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      List<Item> its;
-      String info;
-      if (src['type'] == 'xtream') {
-        final cl = XtreamClient.of(src);
-        (its, info) = await cl.loadAll();
-        if (cl.failed.isNotEmpty) {
-          // rubrique non reçue : on garde celle de la dernière liste enregistrée au lieu de la vider
-          final names = {'live': 'chaînes TV', 'movie': 'films', 'series': 'séries'};
-          var kept = <Item>[];
-          try {
-            final cf = File(_cachePath(sid));
-            if (await cf.exists()) {
-              final (old, _) = await compute(_loadCache, cf.path);
-              kept = old.where((i) => cl.failed.containsKey(i.kind)).toList();
-            }
-          } catch (_) {}
-          its = [...its, ...kept];
-          for (final e in cl.failed.entries) {
-            log('⚠ ${names[e.key]} non reçues du serveur Xtream : ${e.value}');
-          }
-          error = "Le serveur n'a pas envoyé les ${cl.failed.keys.map((k) => names[k]).join(' et ')}"
-              "${kept.isNotEmpty ? ' (ancienne liste conservée)' : ''}. Réessayez avec « Actualiser » dans quelques minutes.";
+      final sw = Stopwatch()..start();
+      // Tout le travail (téléchargement, analyse, enregistrement, préparation) se fait hors de l'écran principal :
+      // l'interface reste fluide pendant l'actualisation, y compris sur une TV modeste.
+      final res = await compute(refreshWorker, <String, dynamic>{
+        'src': Map<String, dynamic>.from(src),
+        'cache': _cachePath(sid),
+        'kids': profile?['kids'] == true,
+        'hidden': _hiddenSet().toList(),
+        'dedupe': pset['dedupe'] != false,
+        'oldFp': changed ? '' : _fp,
+      });
+      if (res.head.isNotEmpty) _noteEpgHeader(src, res.head);
+      res.patch.forEach((k, v) => src[k] = v); // jeton Jellyfin gardé : les liens enregistrés restent valides
+      if (res.failed.isNotEmpty) {
+        const names = {'live': 'chaînes TV', 'movie': 'films', 'series': 'séries'};
+        for (final e in res.failed.entries) {
+          log('⚠ ${names[e.key]} non reçues du serveur Xtream : ${e.value}');
         }
-      } else if (src['type'] == 'jellyfin') {
-        final cl = JellyfinClient.of(src);
-        (its, info) = await cl.loadAll();
-        // mise à jour : les jaquettes de la médiathèque sont rapatriées tout de suite (réseau local rapide)
-        final urls = [for (final i in its) if (i.logo.isNotEmpty) i.logo];
-        unawaited(DiskImage.prefetch(urls, parallel: 6, max: 3000).then((n) {
-          if (n > 0) log('Jellyfin : $n jaquettes mises en cache');
-        }));
-        // jeton de connexion gardé : les liens de lecture enregistrés restent valides
-        if (src['token'] != cl.token || src['uid'] != cl.uid) {
-          src['token'] = cl.token;
-          src['uid'] = cl.uid;
-          save();
-        }
-      } else {
-        final loc = '${src['url']}'.trim();
-        if (RegExp(r'^https?://', caseSensitive: false).hasMatch(loc)) {
-          final text = await getText(loc, timeout: const Duration(seconds: 120));
-          if (!RegExp('#EXTINF', caseSensitive: false).hasMatch(text)) {
-            throw Exception("Le contenu reçu n'est pas une liste M3U valide.");
-          }
-          its = await compute(parseM3u, text);
-          _noteEpgHeader(src, text.length > 4000 ? text.substring(0, 4000) : text);
-        } else {
-          // fichier local : lecture, décodage et analyse hors de l'écran principal
-          final f = File(loc.replaceFirst('file://', ''));
-          if (!await f.exists()) throw Exception('Fichier introuvable : ${f.path}');
-          final (fits, head) = await compute(_parseM3uFile, f.path);
-          its = fits;
-          _noteEpgHeader(src, head);
-        }
-        info = '';
+        error = "Le serveur n'a pas envoyé les ${res.failed.keys.map((k) => names[k]).join(' et ')}"
+            ". Réessayez avec « Actualiser » dans quelques minutes.";
       }
-      final now = DateTime.now();
-      info = [info, 'Mise à jour : ${fmtDate(now.toIso8601String())} ${fmtHm(now)}'].where((e) => e.isNotEmpty).join('\n');
-      final payload = {'info': info, 'items': its.map((e) => e.toJson()).toList()};
-      final enc = await compute(_encodeCache, payload);
-      await File(_cachePath(sid)).writeAsString(enc);
       src['updated_ts'] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       save();
       if (currentSource?['id'] == sid) {
-        // actualisation sans nouveauté : on ne reconstruit pas l'écran (pas de retour en haut de page)
-        var same = its.length == _raw.length;
-        for (var i = 0; same && i < its.length; i++) {
-          if (its[i].url != _raw[i].url || its[i].name != _raw[i].name) same = false;
-        }
-        if (same) {
-          sourceInfo = info;
-          log('Actualisation : aucune nouveauté');
+        final prep = res.prep;
+        if (prep == null) {
+          sourceInfo = res.info;
+          log('Actualisation : aucune nouveauté (${res.count} éléments, ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s)');
         } else {
           final before = _raw.length;
-          await _applyLibraryAsync(its, info);
-          if (before > 0) log('Actualisation : ${its.length - before >= 0 ? '+' : ''}${its.length - before} éléments');
+          _install(res.raw, res.info, prep);
+          log('Actualisation en ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s : ${res.count} éléments'
+              '${before > 0 ? ' (${res.count - before >= 0 ? '+' : ''}${res.count - before})' : ''}');
+          if (src['type'] == 'jellyfin') {
+            final urls = [for (final i in res.raw) if (i.logo.isNotEmpty) i.logo];
+            unawaited(DiskImage.prefetch(urls, parallel: 6, max: 3000).then((n) {
+              if (n > 0) log('Jellyfin : $n jaquettes mises en cache');
+            }));
+          }
         }
       }
     } catch (e) {
@@ -477,17 +523,46 @@ class AppState extends ChangeNotifier {
   void _applyLibrary(List<Item> raw, String info) =>
       _install(raw, info, prepareLibrary((raw, profile?['kids'] == true, _hiddenSet(), pset['dedupe'] != false)));
 
-  Set<String> _hiddenSet() => ((cfg['hidden_groups'] as List?) ?? const []).map((e) => '$e').toSet();
+  int _rebuildTok = 0;
 
-  /// Même chose, mais tout le travail lourd (titres, regroupements, index) se fait hors de l'écran principal :
-  /// avant, une grosse liste Xtream bloquait l'application pendant de longues secondes au démarrage.
-  Future<void> _applyLibraryAsync(List<Item> raw, String info) async {
-    final prep = await compute(prepareLibrary, (raw, profile?['kids'] == true, _hiddenSet(), pset['dedupe'] != false));
-    _install(raw, info, prep);
+  /// Reconstruit la bibliothèque affichée (profil enfant, doublons, catégories masquées) sans bloquer l'écran :
+  /// la liste enregistrée est relue et préparée dans un isolat.
+  Future<void> _rebuild({bool hideFirst = false}) async {
+    final sid = '${currentSource?['id'] ?? ''}';
+    final tok = ++_rebuildTok;
+    if (sid.isEmpty || _raw.isEmpty || !File(_cachePath(sid)).existsSync()) {
+      _applyLibrary(_raw, sourceInfo);
+      notifyListeners();
+      return;
+    }
+    if (hideFirst) {
+      // profil enfant : on retire tout de suite l'ancien contenu, avant de le remplacer
+      items = [];
+      byKind = {'live': [], 'movie': [], 'series': []};
+      byUrl = {};
+      libVersion++;
+      loading = true;
+      notifyListeners();
+    }
+    try {
+      final (its, info, prep) = await compute(
+          _loadPrepared, ('${_cachePath(sid)}', profile?['kids'] == true, _hiddenSet(), pset['dedupe'] != false));
+      if (tok == _rebuildTok && '${currentSource?['id']}' == sid) _install(its, info, prep);
+    } catch (e) {
+      log('Reconstruction de la liste impossible : $e');
+    } finally {
+      if (tok == _rebuildTok) {
+        loading = false;
+        notifyListeners();
+      }
+    }
   }
+
+  Set<String> _hiddenSet() => ((cfg['hidden_groups'] as List?) ?? const []).map((e) => '$e').toSet();
 
   void _install(List<Item> raw, String info, Prepared prep) {
     _raw = raw;
+    _fp = prep.fp;
     sourceInfo = info;
     items = prep.items;
     byKind = prep.byKind;
@@ -937,7 +1012,7 @@ class AppState extends ChangeNotifier {
     final old = pset[key];
     pset[key] = v;
     save();
-    if (key == 'dedupe' && old != v) _applyLibrary(_raw, sourceInfo);
+    if (key == 'dedupe' && old != v) unawaited(_rebuild());
     notifyListeners();
     return v;
   }
@@ -949,7 +1024,7 @@ class AppState extends ChangeNotifier {
     cfg['ch_quality'] = <String, dynamic>{};
     cfg['auto_live_cache'] = kAutoSteps[1];
     save();
-    _applyLibrary(_raw, sourceInfo);
+    unawaited(_rebuild());
     notifyListeners();
   }
 
@@ -981,7 +1056,7 @@ class AppState extends ChangeNotifier {
     cfg['hidden_groups'] = hidden.take(5000).toList();
     if (order != null) cfg['group_order'] = order.take(5000).toList();
     save();
-    _applyLibrary(_raw, sourceInfo);
+    unawaited(_rebuild());
     notifyListeners();
   }
 

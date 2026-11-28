@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/imgcache.dart';
@@ -9,7 +10,7 @@ import '../core/text.dart';
 import 'theme.dart';
 
 /// Image réseau avec emplacement de secours (initiales).
-class NetImg extends StatelessWidget {
+class NetImg extends StatefulWidget {
   final String url;
   final String fallbackText;
   final BoxFit fit;
@@ -23,28 +24,69 @@ class NetImg extends StatelessWidget {
       {super.key, this.fallbackText = '', this.fit = BoxFit.cover, this.radius = 10, this.circle = false,
       this.cacheWidth, this.alignment = Alignment.center, this.alt});
 
+  @override
+  State<NetImg> createState() => _NetImgState();
+}
+
+class _NetImgState extends State<NetImg> {
+  // Une pochette qui n'a pas pu être chargée (réseau saturé au démarrage…) est redemandée toute seule,
+  // au lieu de rester vide jusqu'au prochain lancement.
+  static const _retryAfter = [3, 10, 30, 90];
+  int _try = 0;
+  Timer? _timer;
+
+  @override
+  void didUpdateWidget(NetImg old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url) {
+      _try = 0;
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _failed(Object err) {
+    final permanent = err is HttpStatusError && err.code >= 400 && err.code < 500 && err.code != 408 && err.code != 429;
+    if (permanent || _timer != null || _try >= _retryAfter.length) return;
+    _timer = Timer(Duration(seconds: _retryAfter[_try]), () {
+      _timer = null;
+      if (mounted) setState(() => _try++);
+    });
+  }
+
   Widget _ph() => Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(colors: [Color(0xFF262A38), Color(0xFF1A1D27)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [kPhA, kPhB], begin: Alignment.topLeft, end: Alignment.bottomRight),
         ),
         alignment: Alignment.center,
-        child: Text(fallbackText.isEmpty ? '' : initials(fallbackText),
-            style: const TextStyle(color: Color(0xFF5D6478), fontWeight: FontWeight.w800, fontSize: 20)),
+        child: Text(widget.fallbackText.isEmpty ? '' : initials(widget.fallbackText),
+            style: TextStyle(color: kPhText, fontWeight: FontWeight.w800, fontSize: 20)),
       );
 
   @override
   Widget build(BuildContext context) {
+    final url = widget.url;
     Widget img = url.isEmpty || !url.startsWith('http')
-        ? (alt?.call() ?? _ph())
+        ? (widget.alt?.call() ?? _ph())
         : Image(
-            image: ResizeImage.resizeIfNeeded(cacheWidth ?? 500, null, DiskImage(url)),
-            fit: fit,
-            alignment: alignment,
+            key: ValueKey('$url#$_try'),
+            image: ResizeImage.resizeIfNeeded(widget.cacheWidth ?? 500, null, DiskImage(url)),
+            fit: widget.fit,
+            alignment: widget.alignment,
             gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => alt?.call() ?? _ph(),
+            errorBuilder: (_, err, __) {
+              _failed(err);
+              return widget.alt?.call() ?? _ph();
+            },
             loadingBuilder: (c, child, p) => p == null ? child : _ph());
-    if (circle) return ClipOval(child: img);
-    return ClipRRect(borderRadius: BorderRadius.circular(radius), child: img);
+    if (widget.circle) return ClipOval(child: img);
+    return ClipRRect(borderRadius: BorderRadius.circular(widget.radius), child: img);
   }
 }
 
@@ -100,10 +142,10 @@ class _FocusCardState extends State<FocusCard> {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: _focus ? const Color(0xFF22324A) : Colors.white.withValues(alpha: .06),
+      color: _focus ? kHi : kInk.withValues(alpha: .06),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: _focus ? const BorderSide(color: Colors.white, width: 3) : BorderSide(color: Colors.white.withValues(alpha: .12)),
+        side: _focus ? BorderSide(color: kFocus, width: 3) : BorderSide(color: kInk.withValues(alpha: .12)),
       ),
       child: InkWell(
         autofocus: widget.autofocus,
@@ -123,7 +165,7 @@ class NavButton extends StatefulWidget {
   final bool selected;
   final bool circle;
   final Color color;
-  final Color selectedColor;
+  final Color? selectedColor;
   final BorderSide side;
   final String? tooltip;
   final bool autofocus;
@@ -134,7 +176,7 @@ class NavButton extends StatefulWidget {
     this.selected = false,
     this.circle = false,
     this.color = Colors.transparent,
-    this.selectedColor = const Color(0x21FFFFFF),
+    this.selectedColor,
     this.side = BorderSide.none,
     this.tooltip,
     this.autofocus = false,
@@ -147,13 +189,13 @@ class _NavButtonState extends State<NavButton> {
   bool _focus = false;
   @override
   Widget build(BuildContext context) {
-    final side = _focus ? const BorderSide(color: Colors.white, width: 2.5) : widget.side;
+    final side = _focus ? BorderSide(color: kFocus, width: 2.5) : widget.side;
     final ShapeBorder shape = widget.circle ? CircleBorder(side: side) : StadiumBorder(side: side);
     final btn = AnimatedScale(
       scale: _focus ? 1.06 : 1,
       duration: const Duration(milliseconds: 120),
       child: Material(
-        color: _focus ? Colors.white.withValues(alpha: .2) : (widget.selected ? widget.selectedColor : widget.color),
+        color: _focus ? kInk.withValues(alpha: .2) : (widget.selected ? (widget.selectedColor ?? kInk.withValues(alpha: .14)) : widget.color),
         shape: shape,
         child: InkWell(
           autofocus: widget.autofocus,
@@ -222,7 +264,7 @@ class PosterCard extends StatelessWidget {
                   left: 8, right: 8, bottom: 10,
                   child: Text(item.title.isEmpty ? item.name : item.title,
                       textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: kMuted, fontSize: 12)),
+                      style: TextStyle(color: kMuted, fontSize: 12)),
                 ),
               if (item.ratingStr.isNotEmpty)
                 Positioned(left: 6, top: 6, child: Pill('★ ${item.ratingStr}', color: Colors.black.withValues(alpha: .7))),
@@ -232,9 +274,9 @@ class PosterCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(item.title.isEmpty ? item.name : item.title,
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: on ? Colors.white : kText)),
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: on ? kInk : kText)),
           if (item.sub.isNotEmpty)
-            Text(item.sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMuted, fontSize: 11)),
+            Text(item.sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: kMuted, fontSize: 11)),
         ]),
       ),
     );
@@ -307,8 +349,8 @@ class WideCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: on ? Colors.white : kText)),
-          if (sub.isNotEmpty) Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMuted, fontSize: 11.5)),
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: on ? kInk : kText)),
+          if (sub.isNotEmpty) Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: kMuted, fontSize: 11.5)),
         ]),
       ),
     );
@@ -334,7 +376,7 @@ class ChannelCard extends StatelessWidget {
             height: w * .6,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: on ? const Color(0xFF232734) : const Color(0xFF191C25),
+              color: on ? kCard : kCard2,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: on ? kAccent : Colors.transparent, width: 2.5),
             ),
@@ -346,7 +388,7 @@ class ChannelCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(item.title.isEmpty ? item.name : item.title,
               textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: on ? Colors.white : kText)),
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: on ? kInk : kText)),
         ]),
       ),
     );
@@ -380,7 +422,7 @@ class ActorCard extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
           if (role.isNotEmpty)
             Text(role, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kMuted, fontSize: 11)),
+                style: TextStyle(color: kMuted, fontSize: 11)),
         ]),
       ),
     );
@@ -405,7 +447,7 @@ class CatTileCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: kCard,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: on ? kAccent : const Color(0xFF2C3140), width: on ? 2 : 1),
+            border: Border.all(color: on ? kAccent : kBorder2, width: on ? 2 : 1),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(11),
@@ -435,7 +477,7 @@ class CatTileCard extends StatelessWidget {
                       Text(tile.name, maxLines: 2, overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.white)),
                       if (tile.sub.isNotEmpty)
-                        Text(tile.sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMuted, fontSize: 11)),
+                        Text(tile.sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: kMuted, fontSize: 11)),
                     ]),
                   ),
                 ]),
@@ -482,7 +524,7 @@ class Section extends StatelessWidget {
                       if (onMore != null) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.chevron_right, color: kAccent)),
                     ]),
                   ),
-                  if (subtitle.isNotEmpty) Text(subtitle, style: const TextStyle(color: kMuted, fontSize: 12.5)),
+                  if (subtitle.isNotEmpty) Text(subtitle, style: TextStyle(color: kMuted, fontSize: 12.5)),
                 ]),
               ),
               if (badge.isNotEmpty) Pill(badge, size: 11),

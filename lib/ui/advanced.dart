@@ -44,7 +44,7 @@ class AdvancedSettings extends StatelessWidget {
         sec = st.section;
         out.add(_h(_sectionTitles[sec] ?? sec));
         if (sec == 'Lecture') {
-          out.add(const Text(
+          out.add(Text(
               'AUTO adapte la mémoire tampon après chaque coupure et la réduit quand tout est stable. '
               'Performance : zapping le plus rapide. Anti-freeze : continuité avant tout. Personnalisé : les valeurs ci-dessous.',
               style: TextStyle(color: kMuted, height: 1.4)));
@@ -94,7 +94,7 @@ class AdvancedSettings extends StatelessWidget {
       child: Text(
           'Appareil : ${s.cores} cœurs${s.ramMb > 0 ? ', ${(s.ramMb / 1024).toStringAsFixed(1)} Go de mémoire' : ''} — niveau '
           '${{'low': 'économique', 'mid': 'standard', 'high': 'puissant'}[s.hwTier]} (qualité et mémoire tampon adaptées automatiquement)',
-          style: const TextStyle(color: kMuted, fontSize: 12.5)),
+          style: TextStyle(color: kMuted, fontSize: 12.5)),
     ));
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: out);
   }
@@ -102,7 +102,7 @@ class AdvancedSettings extends StatelessWidget {
   Widget _choice(AppState s, Setting st, {String? extraHint}) => Padding(
         padding: const EdgeInsets.only(top: 10),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(st.label, style: const TextStyle(color: kMuted)),
+          Text(st.label, style: TextStyle(color: kMuted)),
           const SizedBox(height: 6),
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final (code, lab) in st.choices)
@@ -113,7 +113,7 @@ class AdvancedSettings extends StatelessWidget {
                 onSelected: (_) => s.setSetting(st.key, code),
               ),
           ]),
-          if (extraHint != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(extraHint, style: const TextStyle(color: kMuted, fontSize: 12))),
+          if (extraHint != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(extraHint, style: TextStyle(color: kMuted, fontSize: 12))),
         ]),
       );
 }
@@ -172,7 +172,7 @@ class _AdminCardState extends State<AdminCard> {
     final on = s.admin?.running == true;
     final url = on && s.admin!.urls.isNotEmpty ? s.admin!.urls.first : '';
     final info = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text(
+      Text(
           "Gérez l'application depuis un ordinateur, un téléphone ou une tablette du même réseau : ajout de listes "
           '(glisser-déposer de fichiers M3U), catégories, doublons, favoris, guide TV, réglages, journaux, sauvegarde. '
           'Accès protégé par un code PIN et limité au réseau local (jamais exposé sur Internet).',
@@ -194,9 +194,9 @@ class _AdminCardState extends State<AdminCard> {
         SelectableText(url, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
         const SizedBox(height: 4),
         Text('Adresse IP : ${Uri.tryParse(url)?.host ?? ''}  ·  Port : ${s.admin!.port}  ·  Code PIN : ${adm['pin']}',
-            style: const TextStyle(color: kMuted)),
+            style: TextStyle(color: kMuted)),
       ] else
-        Text('Désactivée.  Code PIN : ${adm['pin']}', style: const TextStyle(color: kMuted)),
+        Text('Désactivée.  Code PIN : ${adm['pin']}', style: TextStyle(color: kMuted)),
       const SizedBox(height: 8),
       OutlinedButton(onPressed: s.newAdminPin, child: const Text('Nouveau code PIN')),
     ]);
@@ -325,7 +325,7 @@ Future<void> editGuide(BuildContext context, Map<String, dynamic> src) async {
         Text(
             'Adresse d’un guide XMLTV (.xml ou .xml.gz). Laissez vide pour utiliser celui de la liste'
             '${(src['epg_auto'] ?? '') != '' ? ' (${src['epg_auto']})' : ''} ou du compte Xtream.',
-            style: const TextStyle(color: kMuted)),
+            style: TextStyle(color: kMuted)),
         const SizedBox(height: 10),
         TvTextField(controller: c, keyboardType: TextInputType.url, label: 'Guide TV (XMLTV)', hint: 'https://…/epg.xml.gz'),
       ]),

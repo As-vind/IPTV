@@ -59,7 +59,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                 Logo(height: wide ? 72 : 56),
                 const SizedBox(height: 30),
                 Text(_manage ? 'Gérer les profils' : 'Qui regarde ?',
-                    style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w800, color: Colors.white)),
+                    style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w800, color: kInk)),
                 const SizedBox(height: 26),
                 Wrap(spacing: 18, runSpacing: 18, alignment: WrapAlignment.center, children: [
                   for (var i = 0; i < profiles.length; i++)
@@ -73,7 +73,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                             Container(
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(size * .18),
-                                border: Border.all(color: on ? Colors.white : Colors.transparent, width: 3),
+                                border: Border.all(color: on ? kFocus : Colors.transparent, width: 3),
                               ),
                               child: AvatarView(profiles[i], size: size),
                             ),
@@ -87,10 +87,10 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                           ]),
                           const SizedBox(height: 10),
                           Text('${profiles[i]['name']}', maxLines: 1, overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: on ? Colors.white : const Color(0xFFC9CCD6))),
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: on ? kInk : kSoft)),
                           if (profiles[i]['kids'] == true || '${profiles[i]['pin'] ?? ''}'.isNotEmpty)
                             Text([if (profiles[i]['kids'] == true) 'Enfant', if ('${profiles[i]['pin'] ?? ''}'.isNotEmpty) '🔒'].join(' · '),
-                                style: const TextStyle(color: kMuted, fontSize: 12)),
+                                style: TextStyle(color: kMuted, fontSize: 12)),
                         ]),
                       ),
                     ),
@@ -105,9 +105,9 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                             decoration: BoxDecoration(
                               color: kCard2,
                               borderRadius: BorderRadius.circular(size * .16),
-                              border: Border.all(color: on ? Colors.white : const Color(0xFF3A4050), width: 2),
+                              border: Border.all(color: on ? kFocus : kBorder2, width: 2),
                             ),
-                            child: const Icon(Icons.add, size: 44, color: kMuted),
+                            child: Icon(Icons.add, size: 44, color: kMuted),
                           ),
                           const SizedBox(height: 10),
                           const Text('Ajouter un profil', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
@@ -207,9 +207,9 @@ class _ProfileDialogState extends State<ProfileDialog> {
               value: _p['kids'] == true,
               onChanged: (v) => setState(() => _p['kids'] = v),
               title: const Text('Profil enfant'),
-              subtitle: const Text('Masque les catégories pour adultes', style: TextStyle(color: kMuted)),
+              subtitle: Text('Masque les catégories pour adultes', style: TextStyle(color: kMuted)),
             ),
-            const Text('Couleur', style: TextStyle(color: kMuted)),
+            Text('Couleur', style: TextStyle(color: kMuted)),
             const SizedBox(height: 6),
             Wrap(spacing: 8, runSpacing: 8, children: [
               for (final c in kAvatarColors)
@@ -226,7 +226,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
                 ),
             ]),
             const SizedBox(height: 14),
-            const Text('Avatar', style: TextStyle(color: kMuted)),
+            Text('Avatar', style: TextStyle(color: kMuted)),
             const SizedBox(height: 6),
             Wrap(spacing: 6, runSpacing: 6, children: [
               for (final e in kAvatarEmojis)

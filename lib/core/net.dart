@@ -83,10 +83,13 @@ class Semaphore {
 
 dynamic _jsonDecode(String s) => jsonDecode(s);
 
+/// Vrai dans l'isolat d'actualisation : on y est déjà hors de l'écran principal, inutile d'en lancer un autre.
+bool inWorker = false;
+
 Future<dynamic> getJson(String url, {Map<String, String>? headers, Duration timeout = const Duration(seconds: 90)}) async {
   final txt = (await getText(url, headers: headers, timeout: timeout)).trim();
   if (txt.isEmpty) return null;
-  if (txt.length > 200000) return compute(_jsonDecode, txt);
+  if (txt.length > 200000 && !inWorker) return compute(_jsonDecode, txt);
   return jsonDecode(txt);
 }
 

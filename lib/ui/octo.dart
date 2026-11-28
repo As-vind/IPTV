@@ -257,11 +257,11 @@ class OctoCard extends StatelessWidget {
   }
 
   Widget _titlePh(String title) => Container(
-        decoration: BoxDecoration(color: const Color(0xFF1C2130), borderRadius: BorderRadius.circular(_radius)),
+        decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(_radius)),
         alignment: Alignment.center,
         padding: const EdgeInsets.all(10),
         child: Text(title, textAlign: TextAlign.center, maxLines: 4, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: kMuted, fontWeight: FontWeight.w700, fontSize: 13)),
+            style: TextStyle(color: kMuted, fontWeight: FontWeight.w700, fontSize: 13)),
       );
 
   Widget _body(BuildContext context, Size sz, Map<String, dynamic>? m) {
@@ -382,7 +382,7 @@ class OctoCard extends StatelessWidget {
         return Container(
           width: sz.width, height: sz.height,
           decoration: BoxDecoration(
-            color: const Color(0xFF15181F),
+            color: kCard2,
             borderRadius: BorderRadius.circular(_radius),
             border: Border.all(color: Colors.white.withValues(alpha: .2)),
           ),
@@ -532,7 +532,7 @@ class OctoRow extends StatelessWidget {
                   child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: (u.phone ? 19 : 23) * clampK(k, .85, 1.3), fontWeight: FontWeight.w800, color: Colors.white)),
                 ),
-                if (onMore != null) const Padding(padding: EdgeInsets.only(left: 4, top: 2), child: Icon(Icons.chevron_right, color: kMuted)),
+                if (onMore != null) Padding(padding: EdgeInsets.only(left: 4, top: 2), child: Icon(Icons.chevron_right, color: kMuted)),
               ]),
             ),
           ),

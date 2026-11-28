@@ -503,7 +503,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final cur = (_s.cfg['ch_quality'] as Map)[_ckey];
     await showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF161A23),
+      backgroundColor: kPanel,
       builder: (c) => SafeArea(
         child: ListView(shrinkWrap: true, children: [
           const Padding(
@@ -530,7 +530,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               selectedColor: kAccent,
               title: Text('${(kQLabels[_variants[i].q] ?? '').isEmpty ? 'Standard' : kQLabels[_variants[i].q]}'
                   '${_s.stats.dead(_variants[i].url) ? '  · indisponible' : ''}'),
-              subtitle: Text(Uri.tryParse(_variants[i].url)?.host ?? '', style: const TextStyle(color: kMuted)),
+              subtitle: Text(Uri.tryParse(_variants[i].url)?.host ?? '', style: TextStyle(color: kMuted)),
               onTap: () {
                 Navigator.pop(c);
                 final code = kQCodes.entries.where((e) => e.value == _variants[i].q).firstOrNull?.key;
@@ -553,7 +553,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF161A23),
+      backgroundColor: kPanel,
       builder: (c) => StatefulBuilder(builder: (c, setSt) {
         void put(String k, dynamic v) {
           _s.setSetting(k, v);
@@ -581,7 +581,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           return Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(st.label, style: const TextStyle(color: kMuted)),
+              Text(st.label, style: TextStyle(color: kMuted)),
               const SizedBox(height: 6),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final (code, lab) in st.choices)
@@ -751,7 +751,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final list = audio ? tracks.audio : tracks.subtitle;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF161A23),
+      backgroundColor: kPanel,
       builder: (c) => SafeArea(
         child: ListView(shrinkWrap: true, children: [
           Padding(
@@ -876,7 +876,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMuted, fontSize: 13)),
+                            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: kMuted, fontSize: 13)),
                           ]),
                         ),
                         if (_live) const Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text('● EN DIRECT',
@@ -980,7 +980,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 1),
                           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            SizedBox(width: 120, child: Text(e.key, style: const TextStyle(color: kMuted, fontSize: 11.5))),
+                            SizedBox(width: 120, child: Text(e.key, style: TextStyle(color: kMuted, fontSize: 11.5))),
                             Expanded(child: Text('${e.value}', style: const TextStyle(fontSize: 11.5))),
                           ]),
                         ),

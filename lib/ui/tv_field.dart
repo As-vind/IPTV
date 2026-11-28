@@ -163,9 +163,9 @@ class _TvTextFieldState extends State<TvTextField> {
         prefixIcon: widget.prefixIcon,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: focused ? const BorderSide(color: Colors.white, width: 3) : const BorderSide(color: kBorder),
+          borderSide: focused ? BorderSide(color: kFocus, width: 3) : BorderSide(color: kBorder),
         ),
-        fillColor: focused ? const Color(0xFF22324A) : null,
+        fillColor: focused ? kHi : null,
       );
 
   @override
@@ -210,11 +210,11 @@ class _TvTextFieldState extends State<TvTextField> {
                 widget.obscure ? '•' * text.length : text,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 16, color: Colors.white),
+                style: TextStyle(fontSize: 16, color: kInk),
               ),
             ),
             if (focused)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(left: 8),
                 child: Text('OK pour écrire', style: TextStyle(color: kMuted, fontSize: 12)),
               ),
@@ -284,12 +284,12 @@ class _EditorState extends State<_Editor> {
             margin: const EdgeInsets.fromLTRB(24, 18, 24, 0),
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
             decoration: BoxDecoration(
-              color: const Color(0xFF161A23),
+              color: kPanel,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: kAccent, width: 2),
             ),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(widget.label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+              Text(widget.label, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kInk)),
               const SizedBox(height: 10),
               Row(children: [
                 Expanded(
@@ -300,7 +300,7 @@ class _EditorState extends State<_Editor> {
                     keyboardType: widget.keyboardType,
                     textInputAction: TextInputAction.done,
                     autocorrect: false,
-                    style: const TextStyle(fontSize: 20, color: Colors.white),
+                    style: TextStyle(fontSize: 20, color: kInk),
                     decoration: InputDecoration(hintText: widget.hint),
                     onChanged: widget.onChanged,
                     onSubmitted: (_) => _ok(),
@@ -318,7 +318,7 @@ class _EditorState extends State<_Editor> {
                 FilledButton(onPressed: _ok, child: const Text('Valider')),
               ]),
               const SizedBox(height: 8),
-              const Text('« OK » ou « Terminé » sur le clavier pour valider · « Retour » pour annuler',
+              Text('« OK » ou « Terminé » sur le clavier pour valider · « Retour » pour annuler',
                   style: TextStyle(color: kMuted, fontSize: 12.5)),
             ]),
           ),

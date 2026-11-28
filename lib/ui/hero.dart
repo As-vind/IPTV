@@ -211,7 +211,7 @@ class _HeroBannerState extends State<HeroBanner> {
               ),
             ),
           ),
-          const Positioned.fill(
+          Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(

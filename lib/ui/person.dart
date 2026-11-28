@@ -136,11 +136,11 @@ class _PersonScreenState extends State<PersonScreen> {
                   const Text('ACTEUR · ACTRICE', style: TextStyle(color: kAccent, fontWeight: FontWeight.w900, letterSpacing: 2, fontSize: 12)),
                   const SizedBox(height: 4),
                   Text('${m?['name'] ?? widget.name}', style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w900)),
-                  if (bits.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(bits.join('   ·   '), style: const TextStyle(color: kMuted))),
+                  if (bits.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(bits.join('   ·   '), style: TextStyle(color: kMuted))),
                   const SizedBox(height: 10),
-                  if (_loading) const Text('Connexion à TMDB…', style: TextStyle(color: kMuted)),
+                  if (_loading) Text('Connexion à TMDB…', style: TextStyle(color: kMuted)),
                   if (!_loading && m == null && s.tmdbKey.isNotEmpty) ...[
-                    const Text('TMDB ne répond pas pour le moment (ou aucune fiche pour cette personne).',
+                    Text('TMDB ne répond pas pour le moment (ou aucune fiche pour cette personne).',
                         style: TextStyle(color: kMuted)),
                     TextButton.icon(
                       onPressed: () {
@@ -155,7 +155,7 @@ class _PersonScreenState extends State<PersonScreen> {
                     ),
                   ],
                   if (!_loading && s.tmdbKey.isEmpty)
-                    const Text('Ajoutez une clé TMDB (gratuite) dans Paramètres pour la photo, la biographie et la filmographie.',
+                    Text('Ajoutez une clé TMDB (gratuite) dans Paramètres pour la photo, la biographie et la filmographie.',
                         style: TextStyle(color: kMuted)),
                   if (bio.isNotEmpty) ...[
                     Text(_full || bio.length < 600 ? bio : '${bio.substring(0, 597)}…', style: const TextStyle(fontSize: 15, height: 1.45)),

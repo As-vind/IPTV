@@ -38,7 +38,7 @@ class _CategoriesViewState extends State<CategoriesView> {
       ),
       Expanded(
         child: tiles.isEmpty
-            ? const Center(child: Text('Aucune catégorie.', style: TextStyle(color: kMuted)))
+            ? Center(child: Text('Aucune catégorie.', style: TextStyle(color: kMuted)))
             : GridView.builder(
                 padding: EdgeInsets.fromLTRB(pad, 4, pad, 70),
                 gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(

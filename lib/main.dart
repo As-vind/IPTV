@@ -18,11 +18,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   HttpOverrides.global = LaxHttpOverrides();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: kBar,
-  ));
   final state = AppState();
   await state.init();
   // Erreurs : notées dans le journal (Paramètres → Journal, administration web) au lieu de passer inaperçues.
@@ -45,6 +40,15 @@ Future<void> main() async {
 class IptvApp extends StatelessWidget {
   final AppState state;
   const IptvApp({super.key, required this.state});
+
+  /// Thème choisi : sombre, clair, ou automatique (suit le réglage de l'appareil).
+  static bool wantsLight(AppState s) {
+    final v = '${s.pset['ui_theme'] ?? 'dark'}';
+    if (v == 'light') return true;
+    if (v == 'auto') return PlatformDispatcher.instance.platformBrightness == Brightness.light;
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppScope(
@@ -54,12 +58,26 @@ class IptvApp extends StatelessWidget {
           SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
         },
-        child: MaterialApp(
-          title: kAppTitle,
-          debugShowCheckedModeBanner: false,
-          theme: buildTheme(),
-          builder: (context, child) => UiScale(child: child ?? const SizedBox()),
-          home: const RootGate(),
+        child: ListenableBuilder(
+          listenable: state,
+          builder: (context, _) {
+            final light = wantsLight(state);
+            final theme = buildTheme(light: light); // active aussi la palette (setPalette)
+            SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: light ? Brightness.dark : Brightness.light,
+              systemNavigationBarColor: kBar,
+              systemNavigationBarIconBrightness: light ? Brightness.dark : Brightness.light,
+            ));
+            return MaterialApp(
+              key: ValueKey(light),
+              title: kAppTitle,
+              debugShowCheckedModeBanner: false,
+              theme: theme,
+              builder: (context, child) => UiScale(child: child ?? const SizedBox()),
+              home: const RootGate(),
+            );
+          },
         ),
       ),
     );

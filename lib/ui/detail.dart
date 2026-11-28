@@ -161,7 +161,7 @@ class _DetailScreenState extends State<DetailScreen> {
         Padding(padding: const EdgeInsets.only(top: 6),
             child: Text('« ${m!['tagline']} »', style: const TextStyle(fontStyle: FontStyle.italic, color: Color(0xFFC9CBD6)))),
       const SizedBox(height: 8),
-      Text(metaLine, style: const TextStyle(color: kMuted)),
+      Text(metaLine, style: TextStyle(color: kMuted)),
       const SizedBox(height: 8),
       Wrap(spacing: 6, runSpacing: 6, children: [
         if (age.isNotEmpty)
@@ -188,7 +188,7 @@ class _DetailScreenState extends State<DetailScreen> {
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Text.rich(TextSpan(children: [
-            TextSpan(text: _series ? 'Création : ' : 'Réalisation : ', style: const TextStyle(color: kMuted)),
+            TextSpan(text: _series ? 'Création : ' : 'Réalisation : ', style: TextStyle(color: kMuted)),
             TextSpan(text: '${m!['director']}'),
           ])),
         ),
@@ -233,14 +233,14 @@ class _DetailScreenState extends State<DetailScreen> {
                 colorFilter: ColorFilter.mode(Colors.black.withValues(alpha: .55), BlendMode.darken),
                 child: NetImg(poster, radius: 0, cacheWidth: 500)),
       ),
-      const Positioned.fill(
+      Positioned.fill(
         child: DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: [kBg, Color(0xCC0E1016), Color(0x220E1016)], stops: [0, .5, 1]),
           ),
         ),
       ),
-      const Positioned.fill(
+      Positioned.fill(
         child: DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
@@ -295,7 +295,7 @@ class _DetailScreenState extends State<DetailScreen> {
           ..._episodeRows(s, pad),
         ],
         if (_series && seasons.isEmpty && !_loading)
-          Padding(padding: EdgeInsets.all(pad), child: const Text('Aucun épisode disponible.', style: TextStyle(color: kMuted))),
+          Padding(padding: EdgeInsets.all(pad), child: Text('Aucun épisode disponible.', style: TextStyle(color: kMuted))),
         if (cast.isNotEmpty)
           Section(
             title: 'Distribution',
@@ -400,7 +400,7 @@ class _DetailScreenState extends State<DetailScreen> {
               return Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: on ? const Color(0xFF161A23) : Colors.transparent,
+                  color: on ? kPanel : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: on ? kAccent : Colors.transparent, width: 2),
                 ),
@@ -439,12 +439,12 @@ class _DetailScreenState extends State<DetailScreen> {
                           ),
                         ),
                       ]),
-                      if (bits.isNotEmpty) Text(bits, style: const TextStyle(color: kMuted, fontSize: 12)),
+                      if (bits.isNotEmpty) Text(bits, style: TextStyle(color: kMuted, fontSize: 12)),
                       if ('${e['plot'] ?? ''}'.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text('${e['plot']}', maxLines: wide ? 3 : 2, overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: kMuted, fontSize: 13)),
+                              style: TextStyle(color: kMuted, fontSize: 13)),
                         ),
                     ]),
                   ),

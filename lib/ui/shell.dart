@@ -86,7 +86,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
   Widget _avatarMenu(AppState s, {double size = 34, bool withName = false}) {
     return PopupMenuButton<String>(
       tooltip: 'Profil',
-      color: const Color(0xFF161A23),
+      color: kPanel,
       offset: const Offset(0, 46),
       onSelected: (v) {
         if (v == 'switch') {
@@ -180,7 +180,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
         body: Row(children: [
           Container(
             width: side,
-            color: const Color(0xFF0B0F15),
+            color: kPanel,
             child: SafeArea(
               right: false,
               child: Column(children: [
@@ -221,7 +221,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
             const Positioned(top: 0, left: 0, right: 0, child: LinearProgressIndicator(minHeight: 2, color: kAccent, backgroundColor: Colors.transparent)),
         ]),
         bottomNavigationBar: NavigationBar(
-          backgroundColor: const Color(0xFF0B0F15),
+          backgroundColor: kPanel,
           indicatorColor: Colors.white.withValues(alpha: .12),
           height: 64,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
@@ -280,7 +280,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
     final f = w / 290;
     return Container(
       width: w,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(colors: [kSideTop, kSideBottom], begin: Alignment.topLeft, end: Alignment.bottomRight),
         border: Border(right: BorderSide(color: Color(0x12FFFFFF))),
       ),
@@ -351,7 +351,7 @@ class _ShellState extends State<Shell> implements RootNavigator {
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           isExpanded: true,
-          dropdownColor: const Color(0xFF161A23),
+          dropdownColor: kPanel,
           value: srcs.any((x) => x['id'] == s.currentSource?['id']) ? '${s.currentSource!['id']}' : null,
           hint: const Text('Aucune source'),
           items: [

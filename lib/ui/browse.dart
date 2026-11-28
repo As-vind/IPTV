@@ -112,7 +112,7 @@ class _BrowseViewState extends State<BrowseView> {
             Text({'live': 'Chaînes TV', 'movie': 'Films', 'series': 'Séries'}[widget.kind]!,
                 style: TextStyle(fontSize: 24 * uiScale(context), fontWeight: FontWeight.w800)),
           const SizedBox(width: 10),
-          Text('${res.length} ${live ? 'chaînes' : 'titres'}', style: const TextStyle(color: kMuted)),
+          Text('${res.length} ${live ? 'chaînes' : 'titres'}', style: TextStyle(color: kMuted)),
           const Spacer(),
           SizedBox(
             width: wide ? 260 : 150,
@@ -154,7 +154,7 @@ class _BrowseViewState extends State<BrowseView> {
       const SizedBox(height: 8),
       Expanded(
         child: res.isEmpty
-            ? Center(child: Text(pool.isEmpty ? 'Rien ici pour le moment.' : 'Aucun résultat.', style: const TextStyle(color: kMuted)))
+            ? Center(child: Text(pool.isEmpty ? 'Rien ici pour le moment.' : 'Aucun résultat.', style: TextStyle(color: kMuted)))
             : GridView.builder(
                 padding: EdgeInsets.fromLTRB(pad, 8, pad, 70),
                 gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
@@ -185,7 +185,7 @@ class FavoritesView extends StatelessWidget {
     final s = AppScope.of(context);
     final favs = s.items.where((i) => s.favorites.contains(i.url)).toList();
     if (favs.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
           padding: EdgeInsets.all(30),
           child: Text('Votre liste est vide.\nAjoutez des chaînes, films ou séries avec « Ma liste ».',

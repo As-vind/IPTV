@@ -402,6 +402,11 @@ const List<Setting> kSettings = [
     ('tv', 'Télévision'),
     ('projector', 'Vidéoprojecteur'),
   ]),
+  Setting('Affichage', 'ui_theme', 'Thème', 'choice', 'dark', choices: [
+    ('dark', 'Sombre'),
+    ('light', 'Clair (blanc et bleu)'),
+    ('auto', "Automatique (selon l'appareil)"),
+  ]),
   Setting('Affichage', 'ui_inches', "Taille de l'écran (diagonale)", 'choice', 'auto', choices: [
     ('auto', 'Automatique'),
     ('24', "Jusqu'à 27\" (moniteur)"),
