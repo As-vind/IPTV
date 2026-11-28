@@ -181,6 +181,15 @@ ThemeData buildTheme({bool light = false}) {
       overlayColor: p.sel.withValues(alpha: .2),
       valueIndicatorColor: p.sel,
     ),
+    // Boutons-icônes (Modifier, Supprimer…) : bien visibles quand la télécommande est dessus.
+    iconButtonTheme: IconButtonThemeData(
+      style: ButtonStyle(
+        backgroundColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.focused) ? p.sel : null),
+        foregroundColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.focused) ? Colors.white : p.ink),
+        side: WidgetStateBorderSide.resolveWith(
+            (st) => st.contains(WidgetState.focused) ? BorderSide(color: p.focus, width: 3) : BorderSide.none),
+      ),
+    ),
     listTileTheme: ListTileThemeData(selectedColor: p.sel, iconColor: p.ink, textColor: p.text),
     focusColor: p.ink.withValues(alpha: 0.16),
     progressIndicatorTheme: ProgressIndicatorThemeData(color: p.sel, linearTrackColor: p.ink.withValues(alpha: .12)),

@@ -619,3 +619,80 @@ String hostOf(String url) => Uri.tryParse(url)?.host ?? url;
 
 // gardé pour les usages futurs (en-têtes vidéo)
 const kVideoHeaders = {'User-Agent': kUserAgent};
+
+/// Option à choisir (remplace les « chips ») : toujours lisible à la télécommande.
+///  • choisie : bleu plein, texte blanc gras et coche ✓ ;
+///  • non choisie : fond neutre et contour fin ;
+///  • sélectionnée par la télécommande : grossie, épais contour clair et halo — impossible à perdre de vue.
+class OptChip extends StatefulWidget {
+  final Widget label;
+  final bool selected;
+  final ValueChanged<bool>? onSelected;
+  final bool autofocus;
+  final Widget? avatar;
+  final bool showCheckmark; // gardé pour compatibilité : la coche est toujours affichée sur l'option choisie
+  final String? tooltip;
+  const OptChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    this.onSelected,
+    this.autofocus = false,
+    this.avatar,
+    this.showCheckmark = true,
+    this.tooltip,
+  });
+  @override
+  State<OptChip> createState() => _OptChipState();
+}
+
+class _OptChipState extends State<OptChip> {
+  bool _focus = false;
+  @override
+  Widget build(BuildContext context) {
+    final sel = widget.selected;
+    final fg = sel ? Colors.white : kText;
+    final Color bg = sel ? kSel : (_focus ? kHi : kCard2);
+    final border = _focus
+        ? Border.all(color: kFocus, width: 3)
+        : Border.all(color: sel ? (kLight ? kSel : Colors.white) : kBorder2, width: sel ? 2 : 1.2);
+    Widget chip = AnimatedScale(
+      scale: _focus ? 1.08 : 1,
+      duration: const Duration(milliseconds: 110),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 110),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: bg,
+          border: border,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: _focus ? [BoxShadow(color: kAccent.withValues(alpha: .55), blurRadius: 14, spreadRadius: 1)] : null,
+        ),
+        child: IconTheme.merge(
+          data: IconThemeData(color: fg, size: 18),
+          child: DefaultTextStyle.merge(
+            style: TextStyle(color: fg, fontWeight: sel ? FontWeight.w800 : FontWeight.w500, fontSize: 14),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (sel) ...[const Icon(Icons.check_rounded, size: 18), const SizedBox(width: 6)],
+              if (widget.avatar != null && !sel) ...[widget.avatar!, const SizedBox(width: 6)],
+              widget.label,
+            ]),
+          ),
+        ),
+      ),
+    );
+    chip = Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        autofocus: widget.autofocus,
+        borderRadius: BorderRadius.circular(12),
+        focusColor: Colors.transparent,
+        onFocusChange: (f) => setState(() => _focus = f),
+        onTap: widget.onSelected == null ? null : () => widget.onSelected!(true),
+        child: chip,
+      ),
+    );
+    if (widget.tooltip != null) chip = Tooltip(message: widget.tooltip!, child: chip);
+    return Semantics(selected: sel, button: true, child: chip);
+  }
+}

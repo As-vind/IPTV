@@ -69,7 +69,7 @@ class _BrowseViewState extends State<BrowseView> {
         itemBuilder: (c, i) {
           final (v, label) = values[i];
           final sel = v == selected;
-          return ChoiceChip(
+          return OptChip(
             label: Text(label),
             selected: sel,
             showCheckmark: false,

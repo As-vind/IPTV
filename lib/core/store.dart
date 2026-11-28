@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
@@ -42,10 +43,78 @@ const List<String> kAvatarEmojis = ['', '🦤', '🦁', '🐯', '🦊', '🐼', 
 // ---------------------------------------------------------------- isolats
 /// Lecture du cache d'une source entièrement hors de l'écran principal (lecture + décodage en une fois).
 (List<Item>, String) _loadCache(String path) {
-  final d = jsonDecode(File(path).readAsStringSync());
-  final list = (d is Map ? d['items'] : d) as List? ?? const [];
-  final its = list.whereType<Map>().map((e) => Item.fromJson(Map<String, dynamic>.from(e))).toList();
-  return (its, d is Map ? '${d['info'] ?? ''}' : '');
+  final raf = File(path).openSync();
+  try {
+    final first = raf.readSync(16);
+    raf.setPositionSync(0);
+    // ancien format (un seul bloc JSON) : encore lu tel quel, puis réécrit au nouveau format à la prochaine actualisation
+    if (!String.fromCharCodes(first).startsWith('{"v":2')) {
+      final d = jsonDecode(decodeBody(raf.readSync(raf.lengthSync())));
+      final list = (d is Map ? d['items'] : d) as List? ?? const [];
+      final its = list.whereType<Map>().map((e) => Item.fromJson(Map<String, dynamic>.from(e))).toList();
+      return (its, d is Map ? '${d['info'] ?? ''}' : '');
+    }
+    // nouveau format : une ligne d'en-tête puis une fiche par ligne, lue par petits morceaux (peu de mémoire)
+    final its = <Item>[];
+    var info = '';
+    var head = true;
+    final pend = BytesBuilder(copy: false);
+    void line(List<int> b) {
+      if (b.isEmpty) return;
+      final m = jsonDecode(utf8.decode(b, allowMalformed: true));
+      if (m is! Map) return;
+      if (head) {
+        head = false;
+        info = '${m['info'] ?? ''}';
+      } else {
+        its.add(Item.fromJson(Map<String, dynamic>.from(m)));
+      }
+    }
+
+    while (true) {
+      final chunk = raf.readSync(1 << 20);
+      if (chunk.isEmpty) break;
+      var st = 0;
+      for (var i = 0; i < chunk.length; i++) {
+        if (chunk[i] == 0x0A) {
+          if (pend.isNotEmpty) {
+            pend.add(Uint8List.sublistView(chunk, st, i));
+            line(pend.takeBytes());
+          } else {
+            line(Uint8List.sublistView(chunk, st, i));
+          }
+          st = i + 1;
+        }
+      }
+      if (st < chunk.length) pend.add(Uint8List.fromList(Uint8List.sublistView(chunk, st)));
+    }
+    if (pend.isNotEmpty) line(pend.takeBytes());
+    return (its, info);
+  } finally {
+    raf.closeSync();
+  }
+}
+
+/// Enregistre la liste d'une source : écrite fiche par fiche dans un fichier temporaire puis renommée
+/// (jamais de gros bloc en mémoire, et jamais de cache à moitié écrit si l'appareil s'éteint).
+void _saveCache(String path, String info, List<Item> its) {
+  final tmp = File('$path.tmp');
+  final raf = tmp.openSync(mode: FileMode.write);
+  try {
+    raf.writeStringSync('${jsonEncode({'v': 2, 'info': info})}\n');
+    final sb = StringBuffer();
+    for (var i = 0; i < its.length; i++) {
+      sb.writeln(jsonEncode(its[i].toJson()));
+      if (sb.length > 256 * 1024) {
+        raf.writeFromSync(utf8.encode(sb.toString()));
+        sb.clear();
+      }
+    }
+    if (sb.isNotEmpty) raf.writeFromSync(utf8.encode(sb.toString()));
+  } finally {
+    raf.closeSync();
+  }
+  tmp.renameSync(path);
 }
 
 /// Lecture du cache + préparation dans le même isolat (rien n'est recopié entre les deux étapes).
@@ -123,12 +192,16 @@ Future<RefreshOut> refreshWorker(Map<String, dynamic> a) async {
   } else {
     final loc = '${src['url']}'.trim();
     if (RegExp(r'^https?://', caseSensitive: false).hasMatch(loc)) {
-      final text = await getText(loc, timeout: const Duration(seconds: 120));
-      if (!RegExp('#EXTINF', caseSensitive: false).hasMatch(text)) {
-        throw Exception("Le contenu reçu n'est pas une liste M3U valide.");
+      // téléchargée directement dans un fichier (pas de double copie en mémoire), puis analysée
+      final tmp = '$cachePath.m3u.tmp';
+      try {
+        await downloadToFile(loc, tmp);
+        (its, head) = _parseM3uFile(tmp);
+      } finally {
+        try {
+          File(tmp).deleteSync();
+        } catch (_) {}
       }
-      its = parseM3u(text);
-      head = text.length > 4000 ? text.substring(0, 4000) : text;
     } else {
       final f = File(loc.replaceFirst('file://', ''));
       if (!f.existsSync()) throw Exception('Fichier introuvable : ${f.path}');
@@ -137,7 +210,7 @@ Future<RefreshOut> refreshWorker(Map<String, dynamic> a) async {
   }
   final now = DateTime.now();
   info = [info, 'Mise à jour : ${fmtDate(now.toIso8601String())} ${fmtHm(now)}'].where((e) => e.isNotEmpty).join('\n');
-  File(cachePath).writeAsStringSync(jsonEncode({'info': info, 'items': [for (final e in its) e.toJson()]}));
+  _saveCache(cachePath, info, its);
   final fp = libFingerprint(its);
   final same = fp == '${a['oldFp']}';
   final prep = same ? null : prepareLibrary((its, a['kids'] == true, Set<String>.from(a['hidden'] as List), a['dedupe'] != false));
@@ -1283,7 +1356,7 @@ class AppState extends ChangeNotifier {
 (List<Item>, String) _parseM3uFile(String path) {
   final text = decodeBody(File(path).readAsBytesSync());
   if (!RegExp('#EXTINF', caseSensitive: false).hasMatch(text)) {
-    throw Exception("Le fichier n'est pas une liste M3U valide.");
+    throw Exception("Le contenu reçu n'est pas une liste M3U valide.");
   }
   return (parseM3u(text), text.length > 4000 ? text.substring(0, 4000) : text);
 }

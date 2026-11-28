@@ -280,7 +280,7 @@ class _SourceDialogState extends State<_SourceDialog> {
     }
   }
 
-  Widget _modeChip(_Mode m, IconData ic, String t, {bool autofocus = false}) => ChoiceChip(
+  Widget _modeChip(_Mode m, IconData ic, String t, {bool autofocus = false}) => OptChip(
         autofocus: autofocus,
         avatar: Icon(ic, size: 18, color: _mode == m ? Colors.white : kInk),
         label: Text(t),
@@ -406,9 +406,9 @@ class _SourceDialogState extends State<_SourceDialog> {
               const SizedBox(height: 8),
               Row(children: [
                 Text('Format des chaînes :  ', style: TextStyle(color: kMuted)),
-                ChoiceChip(label: const Text('ts'), selected: _ext == 'ts', onSelected: (_) => setState(() => _ext = 'ts')),
+                OptChip(label: const Text('ts'), selected: _ext == 'ts', onSelected: (_) => setState(() => _ext = 'ts')),
                 const SizedBox(width: 8),
-                ChoiceChip(label: const Text('m3u8'), selected: _ext == 'm3u8', onSelected: (_) => setState(() => _ext = 'm3u8')),
+                OptChip(label: const Text('m3u8'), selected: _ext == 'm3u8', onSelected: (_) => setState(() => _ext = 'm3u8')),
               ]),
             ],
             if (_err != null)
@@ -488,19 +488,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final pad = isWide(context) ? 32.0 : 16.0;
     return Scaffold(
       appBar: AppBar(title: const Text('Paramètres')),
-      body: ListView(padding: EdgeInsets.fromLTRB(pad, 0, pad, 50), children: [
+      // toute la page reste construite : la télécommande peut toujours descendre vers les réglages suivants
+      body: ListView(cacheExtent: 6000, padding: EdgeInsets.fromLTRB(pad, 0, pad, 50), children: [
         _h('Sources'),
         for (final src in s.sources)
           Card(
             color: kCard2,
-            child: ListTile(
-              leading: Icon(src['type'] == 'xtream' ? Icons.satellite_alt : src['type'] == 'jellyfin' ? Icons.home_work_outlined : Icons.playlist_play,
-                  color: s.currentSource?['id'] == src['id'] ? kAccent : kMuted),
-              title: Text('${src['name']}'),
-              subtitle: Text(src['type'] == 'xtream' ? 'Compte Xtream Codes' : src['type'] == 'jellyfin' ? 'Jellyfin · ${src['server']}' : (src['file'] != null ? 'Fichier M3U · ${src['file']}' : 'Lien M3U'),
-                  style: TextStyle(color: kMuted)),
-              onTap: () => s.setSource('${src['id']}'),
-              trailing: Wrap(children: [
+            // La ligne et ses boutons sont côte à côte (et non les boutons DANS la ligne) :
+            // à la télécommande, la flèche droite passe de la source à Modifier, Guide TV, Actualiser, Supprimer.
+            child: Row(children: [
+              Expanded(
+                child: ListTile(
+                  leading: Icon(src['type'] == 'xtream' ? Icons.satellite_alt : src['type'] == 'jellyfin' ? Icons.home_work_outlined : Icons.playlist_play,
+                      color: s.currentSource?['id'] == src['id'] ? kAccent : kMuted),
+                  title: Text('${src['name']}'),
+                  subtitle: Text(src['type'] == 'xtream' ? 'Compte Xtream Codes' : src['type'] == 'jellyfin' ? 'Jellyfin · ${src['server']}' : (src['file'] != null ? 'Fichier M3U · ${src['file']}' : 'Lien M3U'),
+                      style: TextStyle(color: kMuted)),
+                  onTap: () => s.setSource('${src['id']}'),
+                ),
+              ),
+              Wrap(children: [
                 IconButton(tooltip: 'Modifier', icon: const Icon(Icons.edit_outlined),
                     onPressed: () => showSourceDialog(context, edit: src)),
                 if (src['file'] != null)
@@ -519,7 +526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       builder: (c) => AlertDialog(
                         title: Text('Supprimer « ${src['name']} » ?'),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+                          TextButton(autofocus: true, onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
                           FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer')),
                         ],
                       ),
@@ -528,7 +535,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
               ]),
-            ),
+              const SizedBox(width: 6),
+            ]),
           ),
         if (s.sourceInfo.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 6), child: Text(s.sourceInfo, style: TextStyle(color: kMuted, fontSize: 12.5))),
@@ -558,7 +566,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Text('Langue des fiches :  ', style: TextStyle(color: kMuted)),
           for (final (code, name) in _langs)
-            ChoiceChip(
+            OptChip(
               label: Text(name),
               selected: s.lang == code,
               showCheckmark: false,
@@ -575,7 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Text('Films et séries :  ', style: TextStyle(color: kMuted)),
           for (final (v, t) in const [(0, 'Désactivé'), (1, "1 min d'avance"), (5, "5 min d'avance"), (10, "10 min d'avance")])
-            ChoiceChip(
+            OptChip(
               label: Text(t), selected: s.bufferMin == v, showCheckmark: false,
               onSelected: (_) => s.setBufferMin(v),
             ),

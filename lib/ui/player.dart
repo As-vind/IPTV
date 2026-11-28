@@ -14,6 +14,7 @@ import '../core/net.dart';
 import '../core/store.dart';
 import '../core/text.dart';
 import 'scope.dart';
+import 'widgets.dart';
 import 'theme.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -585,7 +586,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               const SizedBox(height: 6),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final (code, lab) in st.choices)
-                  ChoiceChip(
+                  OptChip(
                     label: Text(lab),
                     selected: _s.pset[k] == code,
                     showCheckmark: false,

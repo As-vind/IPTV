@@ -15,7 +15,7 @@ String focusName() {
   final tv = ctx.findAncestorWidgetOfExactType<TvTextField>();
   if (tv != null) return 'champ:${tv.label}';
   if (ctx.findAncestorWidgetOfExactType<FocusCard>() != null) return 'carte';
-  final chip = ctx.findAncestorWidgetOfExactType<ChoiceChip>();
+  final chip = ctx.findAncestorWidgetOfExactType<OptChip>();
   if (chip != null) return 'puce:${(chip.label as Text).data}';
   final btn = ctx.findAncestorWidgetOfExactType<TextButton>() ?? ctx.findAncestorWidgetOfExactType<FilledButton>();
   if (btn != null && btn.child is Text) return 'bouton:${(btn.child as Text).data}';

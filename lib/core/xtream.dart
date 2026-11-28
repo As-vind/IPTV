@@ -73,23 +73,7 @@ class XtreamClient {
           if (c is Map) cats['${c['category_id']}'] = _s(c['category_name']);
         }
       } catch (_) {}
-      List<dynamic>? streams;
-      Object? err;
-      // gros catalogues : délai long et jusqu'à 3 essais (certains serveurs refusent les requêtes trop rapprochées)
-      for (var attempt = 0; attempt < 3 && streams == null; attempt++) {
-        if (attempt > 0) await Future<void>.delayed(Duration(seconds: 3 * attempt));
-        try {
-          streams = list(await api(p[2], const {}, const Duration(seconds: 240)));
-        } catch (e) {
-          err = e;
-        }
-      }
-      if (streams == null) {
-        failed[kind] = '$err';
-        continue;
-      }
-      for (final s in streams) {
-        if (s is! Map) continue;
+      void add(Map<String, dynamic> s) {
         final group = cats['${s['category_id']}'] ?? 'Sans catégorie';
         final name = _s(s['name']);
         if (kind == 'live') {
@@ -109,6 +93,25 @@ class XtreamClient {
               rating: _s(s['rating']), added: _s(s['last_modified'])));
         }
       }
+
+      // Catalogue lu au fil de l'eau : chaque fiche est convertie dès qu'elle arrive (peu de mémoire, même sur TV).
+      final q = {'username': user, 'password': pwd, 'action': p[2]};
+      final url = '$base/player_api.php?${Uri(queryParameters: q).query}';
+      Object? err;
+      var ok = false;
+      // gros catalogues : délai long et jusqu'à 3 essais (certains serveurs refusent les requêtes trop rapprochées)
+      for (var attempt = 0; attempt < 3 && !ok; attempt++) {
+        if (attempt > 0) await Future<void>.delayed(Duration(seconds: 3 * attempt));
+        final mark = items.length;
+        try {
+          await streamJsonObjects(url, add);
+          ok = true;
+        } catch (e) {
+          err = e;
+          items.removeRange(mark, items.length); // essai interrompu : on retire ce qu'il avait ajouté
+        }
+      }
+      if (!ok) failed[kind] = '$err';
     }
     return (items, meta.join('  ·  '));
   }

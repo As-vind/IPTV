@@ -282,7 +282,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 final sn = seasons[i];
                 var name = '${sn['name']}'.isEmpty ? 'Saison ${sn['number']}' : '${sn['name']}';
                 if (!RegExp(r'\d').hasMatch(name)) name = '$name ${sn['number']}';
-                return ChoiceChip(
+                return OptChip(
                   label: Text('$name · ${(sn['episodes'] as List).length}'),
                   selected: _season == i,
                   showCheckmark: false,

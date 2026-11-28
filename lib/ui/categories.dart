@@ -28,7 +28,7 @@ class _CategoriesViewState extends State<CategoriesView> {
         padding: EdgeInsets.fromLTRB(pad, 16, pad, 10),
         child: Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           for (final (k, label) in _tabs)
-            ChoiceChip(
+            OptChip(
               label: Text(label),
               selected: _kind == k,
               showCheckmark: false,

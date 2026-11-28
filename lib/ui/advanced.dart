@@ -106,7 +106,7 @@ class AdvancedSettings extends StatelessWidget {
           const SizedBox(height: 6),
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final (code, lab) in st.choices)
-              ChoiceChip(
+              OptChip(
                 label: Text(lab),
                 selected: s.pset[st.key] == code,
                 showCheckmark: false,
