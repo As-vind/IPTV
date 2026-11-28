@@ -566,7 +566,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
         ]),
         _h('Lecture, pré-chargement et téléchargements'),
-        const Text(
+        Text(
             "Pré-chargement : le film ou l'épisode se télécharge en avance pendant que vous regardez. Si la connexion "
             "ralentit, la lecture continue sur ce qui est déjà chargé ; si elle s'arrête, l'application attend d'avoir "
             "rempli la réserve puis repart sans à-coups. Avec un très petit débit, utilisez plutôt « Télécharger » sur la fiche.",

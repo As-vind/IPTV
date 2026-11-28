@@ -34,7 +34,7 @@ class DownloadsView extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (jobs.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(34),
               child: Text(
                 "Aucun téléchargement pour l'instant.\n\nSur la fiche d'un film, touchez « Télécharger » ; sur une série, "
